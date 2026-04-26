@@ -1,0 +1,5 @@
+badapple_src.mp4
+*.love
+.DS_Store
+__pycache__/
+*.pyc
