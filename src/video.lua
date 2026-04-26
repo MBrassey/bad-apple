@@ -19,24 +19,53 @@ local quads  = {}
 local total_frames = 0
 local total_duration = 0
 
-function M.load(progress_cb)
+local _load = nil  -- incremental loader state
+
+-- Begin an incremental load. Returns immediately. Call M.loadStep(n) until it
+-- returns true to load `n` sheets per call (keeps the boot screen responsive).
+function M.beginLoad()
   local files = love.filesystem.getDirectoryItems("assets/sheets")
   table.sort(files)
-  for i, name in ipairs(files) do
-    local img = love.graphics.newImage("assets/sheets/" .. name)
+  _load = { files = files, i = 0 }
+end
+
+function M.loadStep(n)
+  n = n or 2
+  if not _load then return true end
+  for _ = 1, n do
+    _load.i = _load.i + 1
+    if _load.i > #_load.files then break end
+    local img = love.graphics.newImage("assets/sheets/" .. _load.files[_load.i])
     img:setFilter("linear", "linear")
-    sheets[i] = img
-    if progress_cb then progress_cb(i, #files) end
+    sheets[_load.i] = img
   end
-  -- prebuild quads (one per local index 0..87)
-  local sw, sh = sheets[1]:getDimensions()
-  for q = 0, FRAMES_PER_SHEET - 1 do
-    local cx = q % SHEET_COLS
-    local cy = math.floor(q / SHEET_COLS)
-    quads[q] = love.graphics.newQuad(cx * FRAME_W, cy * FRAME_H, FRAME_W, FRAME_H, sw, sh)
+  if _load.i >= #_load.files then
+    -- finalize: build quads and totals
+    local sw, sh = sheets[1]:getDimensions()
+    for q = 0, FRAMES_PER_SHEET - 1 do
+      local cx = q % SHEET_COLS
+      local cy = math.floor(q / SHEET_COLS)
+      quads[q] = love.graphics.newQuad(cx * FRAME_W, cy * FRAME_H, FRAME_W, FRAME_H, sw, sh)
+    end
+    total_frames = #sheets * FRAMES_PER_SHEET
+    total_duration = total_frames / FPS
+    _load = nil
+    return true
   end
-  total_frames = #sheets * FRAMES_PER_SHEET
-  total_duration = total_frames / FPS
+  return false
+end
+
+function M.loadProgress()
+  if not _load then return 1 end
+  return _load.i / #_load.files
+end
+
+-- Synchronous load kept for parity but routes through the incremental path.
+function M.load(progress_cb)
+  M.beginLoad()
+  while not M.loadStep(8) do
+    if progress_cb then progress_cb(_load.i, #_load.files) end
+  end
 end
 
 function M.totalFrames() return total_frames end

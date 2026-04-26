@@ -181,14 +181,20 @@ local function loadStep()
     Collision.load(); _boot.phase = 3; boot_progress = 0.10; return false
   elseif _boot.phase == 3 then
     boot_msg = "loading frames..."
-    Video.load(function(i, n) boot_progress = 0.10 + 0.85 * (i / n) end)
+    Video.beginLoad()
     _boot.phase = 4; return false
   elseif _boot.phase == 4 then
+    -- load 2 sheets per frame -> ~0.5s total, screen stays responsive
+    local done = Video.loadStep(2)
+    boot_progress = 0.10 + 0.85 * Video.loadProgress()
+    if done then _boot.phase = 5 end
+    return false
+  elseif _boot.phase == 5 then
     boot_msg = "tuning audio..."
     source = love.audio.newSource("assets/badapple.ogg", "stream")
     source:setLooping(false)
     source:setVolume(Save.state.volume or 0.85)
-    boot_progress = 1.0; _boot.phase = 5; return true
+    boot_progress = 1.0; _boot.phase = 6; return true
   end
   return true
 end
