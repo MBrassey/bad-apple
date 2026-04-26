@@ -373,6 +373,7 @@ function love.update(dt)
     Beats.fire(audio_t, fireEvent)
     Obstacles.updateAll(dt, audio_t)
     player:update(dt)
+    Video.update(audio_t, 0.6)         -- prefetch upcoming sheet
 
     Net.broadcast(player, dt)
 
