@@ -48,10 +48,14 @@ function M.reset(t)
   end
 end
 
--- Call each frame with current audio time. Invokes cb(ev) for each event between
--- previous call and now. cb receives the event table.
+-- Pre-roll: emit events up to LOOKAHEAD seconds ahead of the playhead so an
+-- obstacle's warn phase finishes on the beat (visible/danger moment lands on
+-- the music) rather than starting on the beat.
+M.LOOKAHEAD = 0.50
+
 function M.fire(t, cb)
-  while cursor <= #M.events and M.events[cursor].t <= t do
+  local horizon = t + M.LOOKAHEAD
+  while cursor <= #M.events and M.events[cursor].t <= horizon do
     cb(M.events[cursor])
     cursor = cursor + 1
   end

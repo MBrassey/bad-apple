@@ -70,8 +70,8 @@ function Bullet:draw(accent)
     love.graphics.line(self.x, self.y, self.x + self.dx * self.warn_len, self.y + self.dy * self.warn_len)
     love.graphics.setColor(1, 0.55, 0.85, 0.9 * pulse)
     love.graphics.circle("line", self.x, self.y, self.r * (0.5 + 0.5 * k))
+    love.graphics.setLineWidth(1)
   else
-    -- bullet body w/ glow
     for i = 4, 1, -1 do
       love.graphics.setColor(1, 0.4, 0.7, 0.10)
       love.graphics.circle("fill", self.x, self.y, self.r + i * 4)
@@ -343,13 +343,15 @@ function M.chaser(opts)
   o.r = opts.r or 18
   o.speed = opts.speed or 220
   o.life = opts.life or 8
+  o.warn = opts.warn or 0.55       -- ghostly preview before homing engages
   o.elapsed = 0
-  o.target = opts.target          -- {x,y} read each frame
+  o.target = opts.target           -- {x,y} read each frame
   return M.add(o)
 end
 
 function Chaser:update(dt, t)
   self.elapsed = self.elapsed + dt
+  if self.elapsed < self.warn then return end
   local tx, ty = self.target.x, self.target.y
   local dx, dy = tx - self.x, ty - self.y
   local d = math.sqrt(dx*dx + dy*dy)
@@ -360,6 +362,18 @@ function Chaser:update(dt, t)
 end
 
 function Chaser:draw(accent)
+  if self.elapsed < self.warn then
+    -- ghost preview: pulsing accent ring telegraphs spawn point
+    local k = self.elapsed / self.warn
+    local pulse = 0.4 + 0.6 * math.abs(math.sin(self.elapsed * 24))
+    love.graphics.setColor(accent[1], accent[2], accent[3], 0.45 * pulse)
+    love.graphics.setLineWidth(2 + 4 * k)
+    love.graphics.circle("line", self.x, self.y, self.r + 18 - 14 * k)
+    love.graphics.setColor(accent[1], accent[2], accent[3], 0.18 * pulse)
+    love.graphics.circle("fill", self.x, self.y, self.r * 0.7)
+    love.graphics.setLineWidth(1)
+    return
+  end
   for i = 6, 1, -1 do
     love.graphics.setColor(1, 0.4, 0.7, 0.07)
     love.graphics.circle("fill", self.x, self.y, self.r + i * 6)
@@ -371,6 +385,7 @@ function Chaser:draw(accent)
 end
 
 function Chaser:hits(px, py, pr)
+  if self.elapsed < self.warn then return false end
   local dx, dy = px - self.x, py - self.y
   return dx*dx + dy*dy < (self.r + pr) * (self.r + pr)
 end

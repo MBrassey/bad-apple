@@ -21,6 +21,7 @@ local Director   = require "src.director"
 local Glow       = require "src.glow"
 local Save       = require "src.save"
 local Net        = require "src.multiplayer"
+local SFX        = require "src.sfx"
 
 local DESIGN_W, DESIGN_H = 1920, 1080
 
@@ -45,11 +46,23 @@ local LOOP = false
 local sil_dx, sil_dy, sil_dw, sil_dh, sil_scale = 0,0,0,0,1
 local victory_shown = false
 
+-- SFX cache (synthesized at boot)
+local snd_dash, snd_hit, snd_tick, snd_revive, snd_death
+
+-- hit-stop / dt scaling for impact frames
+local hit_stop_t = 0
+-- screen-edge tint pulses (red on hit, cyan on close-call)
+local edge_tint_r = 0
+local edge_tint_c = 0
+-- music duck during dying (0..1, music volume multiplier)
+local music_duck = 1.0
+
 -- death sequence timers
 local dying_t   = 0   -- "IT'S OVER" duration
 local revive_t  = 0   -- "IT'S NOT OVER" duration
 local death_pos = { x = 0, y = 0 }
 local death_audio_t = 0
+local _last_mood_t = nil
 
 -- gameplay metrics
 local combo = 0       -- consecutive obstacle dodges
@@ -136,9 +149,13 @@ end
 local function revive()
   player:revive(death_pos.x, death_pos.y)
   startSongAt(math.max(0, death_audio_t - 0.25))
+  music_duck = 1.0
+  if source then source:setVolume(Save.state.volume or 0.85) end
+  Director.resetGate()
   state = "play"
   combo = 0
   ach("second_chance")
+  SFX.play(snd_revive)
   fxRipple("#ffffff", death_pos.x / DESIGN_W, death_pos.y / DESIGN_H, 850)
   fxFlash("#ffffff", 260)
 end
@@ -149,7 +166,7 @@ local _wall_t0
 
 function love.load()
   love.graphics.setDefaultFilter("linear", "linear", 1)
-  love.window.setMode(1280, 720, { resizable = true, vsync = 1, msaa = 0, highdpi = true, minwidth = 640, minheight = 360 })
+  love.window.setMode(1280, 720, { resizable = false, vsync = 1, msaa = 0, highdpi = true })
   love.window.setTitle("Bad Apple // Beat Dash")
 
   world = love.graphics.newCanvas(DESIGN_W, DESIGN_H)
@@ -194,7 +211,15 @@ local function loadStep()
     source = love.audio.newSource("assets/badapple.ogg", "stream")
     source:setLooping(false)
     source:setVolume(Save.state.volume or 0.85)
-    boot_progress = 1.0; _boot.phase = 6; return true
+    _boot.phase = 6; return false
+  elseif _boot.phase == 6 then
+    boot_msg = "synthesizing sfx..."
+    snd_dash   = SFX.makeDash()
+    snd_hit    = SFX.makeHit()
+    snd_tick   = SFX.makeTick()
+    snd_revive = SFX.makeRevive()
+    snd_death  = SFX.makeDeath()
+    boot_progress = 1.0; _boot.phase = 7; return true
   end
   return true
 end
@@ -202,10 +227,11 @@ end
 -- ─── input ───────────────────────────────────────────────────────────
 function love.keypressed(key)
   if state == "menu" then
-    if     key == "return" or key == "space" then newRun(0)
-    elseif key == "c" and (Save.state.last_checkpoint or 0) > 5 then newRun(Save.state.last_checkpoint)
-    elseif key == "l" then LOOP = not LOOP
+    if     key == "return" or key == "space" then SFX.play(snd_tick); newRun(0)
+    elseif key == "c" and (Save.state.last_checkpoint or 0) > 5 then SFX.play(snd_tick); newRun(Save.state.last_checkpoint)
+    elseif key == "l" then SFX.play(snd_tick); LOOP = not LOOP
     elseif key == "m" then
+      SFX.play(snd_tick)
       if Net.enabled then Net.leave() else Net.tryJoinPublic() end
     elseif key == "-" or key == "kp-" then
       Save.state.volume = math.max(0, (Save.state.volume or 0.85) - 0.05); Save.write()
@@ -216,6 +242,7 @@ function love.keypressed(key)
     if key == "space" or key == "lshift" or key == "rshift" then
       if player:tryDash() then
         ach("first_dash")
+        SFX.play(snd_dash)
         fxRipple(colorHex(accent[1], accent[2], accent[3]), player.x / DESIGN_W, player.y / DESIGN_H, 320)
         if player.dashes >= 100 then ach("dasher") end
       end
@@ -264,24 +291,10 @@ local function fireEvent(ev)
   Director.handle(ev, audio_t, player)
 end
 
-local function silhouetteHit(t)
-  if sil_scale <= 0 then return false end
-  -- tiny hit-circle relative to the visible body so only solid overlaps hurt
-  local r = (player.size * 0.20)
-  local x0, y0 = player.x - r, player.y - r
-  local x1, y1 = player.x + r, player.y + r
-  local vx0 = (x0 - sil_dx) / sil_scale
-  local vy0 = (y0 - sil_dy) / sil_scale
-  local vx1 = (x1 - sil_dx) / sil_scale
-  local vy1 = (y1 - sil_dy) / sil_scale
-  if vx1 < 0 or vy1 < 0 or vx0 > 480 or vy0 > 360 then return false end
-  if vx0 < 0 then vx0 = 0 end
-  if vy0 < 0 then vy0 = 0 end
-  if vx1 > 480 then vx1 = 480 end
-  if vy1 > 360 then vy1 = 360 end
-  local frame = Video.frameAt(t)
-  return Collision.boxHits(frame, vx0, vy0, vx1, vy1)
-end
+-- The silhouette is now atmosphere only -- it doesn't deal damage. Damage
+-- only comes from the explicit beat-spawned obstacles (bullets, beams,
+-- waves, rings, spinners, chasers). Collision.lua remains loaded in case
+-- a future obstacle wants to align its hot-zones to the silhouette mask.
 
 local function checkAchievements()
   if not _claimed["intro_clear"]    and audio_t > 30  then ach("intro_clear")    end
@@ -292,12 +305,16 @@ local function checkAchievements()
   if not _claimed["lobby_visitor"] and Net.enabled and next(Net.ghosts) then ach("lobby_visitor") end
 end
 
-local function detectCloseCall()
-  -- if player is dashing and within 36px of a live obstacle hot zone, count a close call
+local _close_call_recent = 0
+local function detectCloseCall(dt)
+  _close_call_recent = math.max(0, _close_call_recent - dt)
   if not player:dashing() then return end
-  local hit = Obstacles.checkHit(player.x, player.y, player.size * 0.95)
-  if hit then
+  -- detect a near-miss using a wider probe than the actual hit-circle
+  local hit = Obstacles.checkHit(player.x, player.y, player.size * 0.55)
+  if hit and _close_call_recent <= 0 then
     close_calls = close_calls + 1
+    edge_tint_c = 1.0
+    _close_call_recent = 0.30                       -- de-bounce
     if close_calls == 1 then ach("close_call") end
   end
 end
@@ -306,6 +323,15 @@ function love.update(dt)
   if DEBUG_QUIT_AT and (love.timer.getTime() - _wall_t0) > DEBUG_QUIT_AT then
     love.event.quit()
   end
+  -- hit-stop: scale dt to zero for a few frames after impact, so the hit
+  -- "lands" before motion resumes
+  if hit_stop_t > 0 then
+    hit_stop_t = math.max(0, hit_stop_t - love.timer.getDelta())
+    dt = dt * 0.0
+  end
+  -- edge tints decay
+  edge_tint_r = math.max(0, edge_tint_r - love.timer.getDelta() * 2.5)
+  edge_tint_c = math.max(0, edge_tint_c - love.timer.getDelta() * 2.5)
 
   Net.poll()
   Net.update(dt)
@@ -378,25 +404,23 @@ function love.update(dt)
 
     Net.broadcast(player, dt)
 
-    detectCloseCall()
+    detectCloseCall(dt)
 
-    -- collision: silhouette + obstacles
+    -- collision: only spawned obstacles deal damage
     local got_hit = false
     if not player:invincible() then
-      if silhouetteHit(audio_t) then
-        if player:hit() then got_hit = "silhouette" end
-      else
-        -- player hit-circle is intentionally well inside the visible body
-        local h = Obstacles.checkHit(player.x, player.y, player.size * 0.22)
-        if h and player:hit() then got_hit = "obstacle" end
-      end
+      local h = Obstacles.checkHit(player.x, player.y, player.size * 0.22)
+      if h and player:hit() then got_hit = "obstacle" end
     end
 
     if got_hit then
       shake_t, shake_mag = 0.40, 22
       flash_t, flash_color = 0.22, {1, 0.55, 0.85, 1}
+      hit_stop_t = 0.06                             -- short freeze for impact weight
+      edge_tint_r = 1.0                             -- red screen-edge pulse
       fxShake(0.7, 320)
       fxFlash(colorHex(accent[1], accent[2], accent[3]), 220)
+      SFX.play(snd_hit)
       Save.state.hits_taken = (Save.state.hits_taken or 0) + 1
       best_combo = math.max(best_combo, combo)
       combo = 0
@@ -416,10 +440,12 @@ function love.update(dt)
       death_audio_t = audio_t
       state = "dying"
       dying_t = 0
-      if source then source:pause() end
+      music_duck = 0.20                             -- duck the song heavy on death
+      if source then source:setVolume((Save.state.volume or 0.85) * music_duck) end
       fxShake(1.0, 700)
       fxShatter(1.0, 700)
       fxFlash("#000000", 220)
+      SFX.play(snd_death)
       return
     end
 
@@ -443,11 +469,17 @@ function love.update(dt)
     shake_t    = math.max(0, shake_t - dt)
     flash_t    = math.max(0, flash_t - dt)
 
-    -- mood drift across song
+    -- mood drift across song -- the player's accent and the portal mood drift
+    -- together so the chrome and gameplay share a pulse.
     local I = Director.intensity(audio_t)
     accent[1] = 0.95
     accent[2] = 0.30 + 0.20 * (1 - I)
     accent[3] = 0.55 + 0.30 * I
+    -- emit mood at most ~3 Hz to avoid stdout spam
+    if not _last_mood_t or audio_t - _last_mood_t > 0.35 then
+      fxMood(colorHex(accent[1], accent[2], accent[3]), 0.20 + 0.45 * I)
+      _last_mood_t = audio_t
+    end
 
     checkAchievements()
   elseif state == "win" then
@@ -563,6 +595,34 @@ local function drawScreenFlash()
     love.graphics.setColor(flash_color[1], flash_color[2], flash_color[3], 0.45 * k)
     love.graphics.rectangle("fill", 0, 0, DESIGN_W, DESIGN_H)
   end
+end
+
+-- Soft tint along the screen edges -- red on hit, cyan on close-call dodge.
+local function drawEdgeTints()
+  local function band(r, g, b, a)
+    local thick = 220
+    -- top
+    for i = 0, 6 do
+      local k = (1 - i / 6)
+      love.graphics.setColor(r, g, b, a * k * k)
+      love.graphics.rectangle("fill", 0, i * thick / 6, DESIGN_W, thick / 6 + 1)
+    end
+    -- bottom
+    for i = 0, 6 do
+      local k = (1 - i / 6)
+      love.graphics.setColor(r, g, b, a * k * k)
+      love.graphics.rectangle("fill", 0, DESIGN_H - thick + i * thick / 6, DESIGN_W, thick / 6 + 1)
+    end
+    -- sides
+    for i = 0, 6 do
+      local k = (1 - i / 6)
+      love.graphics.setColor(r, g, b, a * k * k)
+      love.graphics.rectangle("fill", i * thick / 6, 0, thick / 6 + 1, DESIGN_H)
+      love.graphics.rectangle("fill", DESIGN_W - thick + i * thick / 6, 0, thick / 6 + 1, DESIGN_H)
+    end
+  end
+  if edge_tint_r > 0 then band(1.0, 0.20, 0.35, 0.55 * edge_tint_r) end
+  if edge_tint_c > 0 then band(0.40, 0.95, 1.0, 0.40 * edge_tint_c) end
 end
 
 local function drawMenu()
@@ -709,6 +769,7 @@ function love.draw()
     Obstacles.drawAll(accent)
     if player then player:draw(accent) end
     drawHUD()
+    drawEdgeTints()
     drawScreenFlash()
     if state == "paused"   then drawPaused()        end
     if state == "dying"    then drawOverScreen()    end

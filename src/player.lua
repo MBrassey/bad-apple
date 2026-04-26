@@ -8,9 +8,10 @@ M.__index = M
 local SPEED         = 580
 local DASH_SPEED    = 2400
 local DASH_TIME     = 0.22
-local DASH_COOLDOWN = 0.32
-local IFRAME_HIT    = 1.80        -- generous invuln window after a hit
-local IFRAME_DASH   = 0.30        -- DASH_TIME + comfortable tail
+local DASH_COOLDOWN = 0.36
+local IFRAME_HIT    = 1.30        -- post-hit invuln (was 1.80 -- felt unkillable)
+local IFRAME_DASH   = 0.40        -- DASH_TIME + comfortable tail
+local DASH_BUFFER   = 0.18        -- queue dash if pressed during cooldown
 local SIZE_MAX      = 40
 local SIZE_MIN      = 18
 local MAX_HP        = 8           -- eight chunks before death
@@ -36,6 +37,7 @@ function M.new(x, y, bounds)
   p.angle = 0                                  -- visual rotation (spins on dash + hit)
   p.spin = 0
   p.death_t = 0
+  p.dash_buffer = 0                            -- decays toward 0; >0 means a queued dash
   return p
 end
 
@@ -72,7 +74,11 @@ function M:input()
 end
 
 function M:tryDash()
-  if self.dash_cd > 0 or self.dash_t > 0 then return false end
+  if self.dash_cd > 0 or self.dash_t > 0 then
+    -- queue the press; it will fire as soon as cooldown expires
+    self.dash_buffer = DASH_BUFFER
+    return false
+  end
   local ix, iy = self:input()
   if ix == 0 and iy == 0 then return false end
   self.dash_dx, self.dash_dy = ix, iy
@@ -80,7 +86,7 @@ function M:tryDash()
   self.dash_cd = DASH_COOLDOWN
   self.iframes = math.max(self.iframes, IFRAME_DASH)
   self.dashes = self.dashes + 1
-  -- visual spin during dash
+  self.dash_buffer = 0
   self.spin = (ix < 0 or iy < 0) and -22 or 22
   return true
 end
@@ -159,6 +165,11 @@ function M:update(dt)
   self.dash_cd  = math.max(0, self.dash_cd - dt)
   self.dash_t   = math.max(0, self.dash_t  - dt)
   self.iframes  = math.max(0, self.iframes - dt)
+  self.dash_buffer = math.max(0, self.dash_buffer - dt)
+  -- consume buffered dash as soon as cooldown clears
+  if self.dash_buffer > 0 and self.dash_cd <= 0 and self.dash_t <= 0 then
+    self:tryDash()
+  end
 
   -- snappy JSAB-like control: instant velocity, no inertia from previous frame.
   local vx, vy

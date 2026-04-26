@@ -5,7 +5,7 @@ function love.conf(t)
   t.window.title  = "Bad Apple // Beat Dash"
   t.window.width  = 1920
   t.window.height = 1080
-  t.window.resizable = true
+  t.window.resizable = false
   t.window.vsync  = 1
   t.window.msaa   = 0
   t.window.highdpi = true
