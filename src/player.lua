@@ -5,15 +5,15 @@ M.__index = M
 -- JSAB-tuned constants. Movement is snappy (high accel, no inertia carry on
 -- release), dash is short and granted i-frames for its full duration plus a
 -- short tail, and the cooldown is short enough to chain through dense waves.
-local SPEED         = 540
-local DASH_SPEED    = 2200
-local DASH_TIME     = 0.18
-local DASH_COOLDOWN = 0.45
-local IFRAME_HIT    = 1.10        -- brief invuln + visible flash on hit
-local IFRAME_DASH   = 0.22        -- DASH_TIME + tail
-local SIZE_MAX      = 36
-local SIZE_MIN      = 14
-local MAX_HP        = 4           -- four chunks before death
+local SPEED         = 560
+local DASH_SPEED    = 2300
+local DASH_TIME     = 0.20
+local DASH_COOLDOWN = 0.38
+local IFRAME_HIT    = 1.45        -- brief invuln + visible flash on hit
+local IFRAME_DASH   = 0.26        -- DASH_TIME + tail
+local SIZE_MAX      = 38
+local SIZE_MIN      = 16
+local MAX_HP        = 6           -- six chunks before death (was 4)
 
 function M.new(x, y, bounds)
   local p = setmetatable({}, M)
@@ -273,8 +273,12 @@ function M:draw(accent)
   -- core body (rounded, accent-tinted)
   drawRoundedSquare(self.x, self.y, self.size, self.angle, cr, cg, cb, blink, self.size*0.22)
 
+  -- bright outline ring so the player stays legible against the silhouette
+  drawRoundedSquare(self.x, self.y, self.size + 4, self.angle, 1, 1, 1, 0.85 * blink, (self.size+4)*0.22)
+  drawRoundedSquare(self.x, self.y, self.size,     self.angle, cr, cg, cb, blink,        self.size*0.22)
+
   -- inner white core, scaled by hp ratio
-  local inner = self.size * (0.45 + 0.15 * (self.hp / 4))
+  local inner = self.size * (0.42 + 0.16 * (self.hp / MAX_HP))
   drawRoundedSquare(self.x, self.y, inner, self.angle, 1, 1, 1, blink, inner*0.28)
 end
 

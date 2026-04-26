@@ -266,7 +266,8 @@ end
 
 local function silhouetteHit(t)
   if sil_scale <= 0 then return false end
-  local r = (player.size * 0.40)
+  -- shrunk hit box vs. the visible body so grazes don't punish
+  local r = (player.size * 0.30)
   local x0, y0 = player.x - r, player.y - r
   local x1, y1 = player.x + r, player.y + r
   local vx0 = (x0 - sil_dx) / sil_scale
@@ -385,7 +386,8 @@ function love.update(dt)
       if silhouetteHit(audio_t) then
         if player:hit() then got_hit = "silhouette" end
       else
-        local h = Obstacles.checkHit(player.x, player.y, player.size * 0.40)
+        -- player hit-circle is intentionally well inside the visible body
+        local h = Obstacles.checkHit(player.x, player.y, player.size * 0.32)
         if h and player:hit() then got_hit = "obstacle" end
       end
     end
@@ -473,12 +475,12 @@ local function drawSilhouetteWithGlow(t)
   local glow = 0.55 + 0.45 * sil_glow
   local cr, cg, cb = accent[1], accent[2], accent[3]
 
-  -- coloured aura halos behind silhouette (additive)
+  -- accent-colored edge glow halos behind the silhouette (additive blend so
+  -- only the edges pick up colour without lifting the dark interior)
   love.graphics.setBlendMode("add", "alphamultiply")
   for i = 4, 1, -1 do
-    local s = 1 + i * 0.012
-    local a = 0.08 * glow / i
-    -- centre the scaled silhouette around the eventual draw rect
+    local s = 1 + i * 0.014
+    local a = 0.07 * glow / i
     local rs, dw, dh = Video.fitRect(DESIGN_W, DESIGN_H)
     local cx = DESIGN_W * 0.5
     local cy = DESIGN_H * 0.5
@@ -486,11 +488,13 @@ local function drawSilhouetteWithGlow(t)
   end
   love.graphics.setBlendMode("alpha")
 
-  -- crisp silhouette on top, white tinted toward accent at high intensity
-  local mix = 0.18 + 0.30 * sil_glow
-  local r = 1 - (1 - cr) * mix
-  local g = 1 - (1 - cg) * mix
-  local b = 1 - (1 - cb) * mix
+  -- silhouette body itself drawn as a deep shadow that sits darker than the
+  -- backdrop -- this is what lets the bright player pop. A faint accent tint
+  -- bleeds in at high intensity so it still pulses with the music.
+  local pulse = 0.35 + 0.25 * sil_glow
+  local r = 0.10 + cr * 0.08 * pulse
+  local g = 0.06 + cg * 0.06 * pulse
+  local b = 0.14 + cb * 0.10 * pulse
   sil_dx, sil_dy, sil_dw, sil_dh, sil_scale = Video.draw(t, 0, 0, DESIGN_W, DESIGN_H, r, g, b, 1.0)
 end
 
