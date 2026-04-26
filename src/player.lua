@@ -5,15 +5,15 @@ M.__index = M
 -- JSAB-tuned constants. Movement is snappy (high accel, no inertia carry on
 -- release), dash is short and granted i-frames for its full duration plus a
 -- short tail, and the cooldown is short enough to chain through dense waves.
-local SPEED         = 560
-local DASH_SPEED    = 2300
-local DASH_TIME     = 0.20
-local DASH_COOLDOWN = 0.38
-local IFRAME_HIT    = 1.45        -- brief invuln + visible flash on hit
-local IFRAME_DASH   = 0.26        -- DASH_TIME + tail
-local SIZE_MAX      = 38
-local SIZE_MIN      = 16
-local MAX_HP        = 6           -- six chunks before death (was 4)
+local SPEED         = 580
+local DASH_SPEED    = 2400
+local DASH_TIME     = 0.22
+local DASH_COOLDOWN = 0.32
+local IFRAME_HIT    = 1.80        -- generous invuln window after a hit
+local IFRAME_DASH   = 0.30        -- DASH_TIME + comfortable tail
+local SIZE_MAX      = 40
+local SIZE_MIN      = 18
+local MAX_HP        = 8           -- eight chunks before death
 
 function M.new(x, y, bounds)
   local p = setmetatable({}, M)

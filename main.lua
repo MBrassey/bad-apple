@@ -266,8 +266,8 @@ end
 
 local function silhouetteHit(t)
   if sil_scale <= 0 then return false end
-  -- shrunk hit box vs. the visible body so grazes don't punish
-  local r = (player.size * 0.30)
+  -- tiny hit-circle relative to the visible body so only solid overlaps hurt
+  local r = (player.size * 0.20)
   local x0, y0 = player.x - r, player.y - r
   local x1, y1 = player.x + r, player.y + r
   local vx0 = (x0 - sil_dx) / sil_scale
@@ -387,7 +387,7 @@ function love.update(dt)
         if player:hit() then got_hit = "silhouette" end
       else
         -- player hit-circle is intentionally well inside the visible body
-        local h = Obstacles.checkHit(player.x, player.y, player.size * 0.32)
+        local h = Obstacles.checkHit(player.x, player.y, player.size * 0.22)
         if h and player:hit() then got_hit = "obstacle" end
       end
     end

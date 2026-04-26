@@ -22,17 +22,24 @@ local function pickBag(items)
 end
 
 local function intensity(t)
-  -- 0..1 ramp shaped to song structure. Eased in the early sections so new
-  -- players get a runway, and the climax stops short of full saturation.
-  if t < 10      then return 0.00 end
-  if t < 28      then return 0.10 + 0.15 * ((t - 10) / 18) end
-  if t < 60      then return 0.28 + 0.12 * ((t - 28) / 32) end
-  if t < 95      then return 0.42 + 0.18 * ((t - 60) / 35) end
-  if t < 130     then return 0.60 + 0.12 * ((t - 95) / 35) end
-  if t < 165     then return 0.72 + 0.10 * ((t - 130) / 35) end
-  if t < 195     then return 0.82 + 0.08 * ((t - 165) / 30) end
-  if t < 215     then return 0.90 end
-  return 0.45
+  -- Heavily eased ramp -- climax tops out around 0.45. Combined with the
+  -- spawn-skip gate below this means the average load is roughly a third
+  -- of the original tuning, while every spawn that does happen still
+  -- lands on a real beat.
+  if t < 12      then return 0.00 end
+  if t < 32      then return 0.05 + 0.07 * ((t - 12) / 20) end
+  if t < 70      then return 0.12 + 0.08 * ((t - 32) / 38) end
+  if t < 110     then return 0.20 + 0.10 * ((t - 70) / 40) end
+  if t < 150     then return 0.30 + 0.07 * ((t - 110) / 40) end
+  if t < 195     then return 0.37 + 0.08 * ((t - 150) / 45) end
+  if t < 215     then return 0.45 end
+  return 0.20
+end
+
+-- Probability that an incoming event actually spawns something. Beat sync
+-- is preserved on the events we DO take; we just take fewer of them.
+local function spawnGate(I, base)
+  return love.math.random() < (base * (0.5 + I))
 end
 
 M.intensity = intensity
@@ -61,109 +68,94 @@ end
 
 local function onKick(t, ev, target)
   local I = intensity(t)
+  if not spawnGate(I, 0.55) then return end          -- ~half of kicks fire at low I
   local r = love.math.random()
-  if r < 0.65 or I < 0.35 then
-    -- 1-2 bullets from edges aimed at center (cap at 2 even at high intensity)
-    local n = 1
-    if I > 0.55 then n = 2 end
-    for i = 1, n do
-      local x, y = edgePoint()
-      local dx, dy = dirToCenter(x + rand(-180,180), y + rand(-110,110))
-      Obs.bullet({ x=x, y=y, dx=dx, dy=dy, speed=720 + I * 200, fire_t=0.55 - I * 0.10, r=11 })
-    end
-  elseif r < 0.88 then
-    -- expanding ring from a spot offset from center
-    local x = CENTER_X + rand(-380, 380)
+  if r < 0.78 or I < 0.30 then
+    -- single slow bullet from an edge aimed loosely at center
+    local x, y = edgePoint()
+    local dx, dy = dirToCenter(x + rand(-200,200), y + rand(-130,130))
+    Obs.bullet({ x=x, y=y, dx=dx, dy=dy, speed=380 + I * 120, fire_t=0.65, r=10 })
+  elseif r < 0.92 then
+    -- expanding ring with a long warn
+    local x = CENTER_X + rand(-360, 360)
     local y = CENTER_Y + rand(-220, 220)
-    Obs.ring({ x=x, y=y, maxr=850, speed=540 + I * 220, thick=12 + I * 5, warn=0.45 - I*0.10 })
+    Obs.ring({ x=x, y=y, maxr=820, speed=300 + I * 130, thick=12, warn=0.55 })
   else
-    -- burst of bullets from a focal point
+    -- small burst
     local x = rand(280, PLAY_W-280)
     local y = rand(180, PLAY_H-180)
-    local n = 8 + math.floor(I * 6)
-    Obs.burst({ x=x, y=y, count=n, speed=480 + I*200, r=10, fire_t=0.55 - I*0.10, angle=rand(0, math.pi) })
+    local n = 6 + math.floor(I * 4)
+    Obs.burst({ x=x, y=y, count=n, speed=280 + I*120, r=10, fire_t=0.70, angle=rand(0, math.pi) })
   end
 end
 
 local function onSnare(t, ev, target)
   local I = intensity(t)
+  if I < 0.20 then return end
+  if not spawnGate(I, 0.40) then return end          -- snares fire sparsely
   local r = love.math.random()
-  if I < 0.40 then
-    -- light section: skip most snares, only an occasional drift bullet
-    if r < 0.45 then
-      local x, y = edgePoint()
-      local dx, dy = dirToCenter(x, y)
-      Obs.bullet({ x=x, y=y, dx=dx, dy=dy, speed=620, r=10, fire_t=0.55 })
-    end
-    return
-  end
-  if r < 0.40 then
-    -- spinner
+  if r < 0.30 then
+    -- spinner, slow rotation
     local x = CENTER_X + rand(-220, 220)
     local y = CENTER_Y + rand(-160, 160)
     Obs.spinner({
       x=x, y=y,
       angle = rand(0, math.pi),
-      spin = (love.math.random() < 0.5 and -1 or 1) * (1.1 + I * 1.2),
+      spin = (love.math.random() < 0.5 and -1 or 1) * (0.55 + I * 0.55),
       length = 720,
-      thick  = 16 + I * 5,
-      arms   = (I > 0.78) and 3 or 2,
-      life   = 1.4 + I * 0.5,
-      warn   = 0.55 - I*0.10,
+      thick  = 14 + I * 4,
+      arms   = 2,
+      life   = 1.2 + I * 0.4,
+      warn   = 0.65,
     })
-  elseif r < 0.78 then
-    -- horizontal or vertical wave with a generous gap
+  elseif r < 0.75 then
+    -- wide-gap wave moving slowly
     local horiz = love.math.random() < 0.6
     if horiz then
       Obs.wave({
         dir = (love.math.random() < 0.5) and "right" or "left",
-        thick = 60,
-        gap_y = rand(300, 780),
-        gap_h = math.max(220, 360 - I * 90),
-        speed = 600 + I * 180,
-        warn = 0.50,
+        thick = 50,
+        gap_y = rand(320, 760),
+        gap_h = math.max(320, 460 - I * 80),
+        speed = 360 + I * 100,
+        warn = 0.65,
       })
     else
       Obs.wave({
         dir = (love.math.random() < 0.5) and "down" or "up",
-        thick = 60,
-        gap_y = rand(440, 1480),
-        gap_h = math.max(230, 360 - I * 90),
-        speed = 600 + I * 180,
-        warn = 0.50,
+        thick = 50,
+        gap_y = rand(460, 1460),
+        gap_h = math.max(330, 460 - I * 80),
+        speed = 360 + I * 100,
+        warn = 0.65,
       })
     end
   else
-    -- beam laser with a long telegraph
+    -- beam laser, long telegraph
     local horiz = love.math.random() < 0.6
     if horiz then
       local y = rand(160, PLAY_H - 160)
-      Obs.beam({ ax=-20, ay=y, bx=PLAY_W+20, by=y, warn=0.75, fire=0.28, thick=22 + I*7 })
+      Obs.beam({ ax=-20, ay=y, bx=PLAY_W+20, by=y, warn=0.95, fire=0.24, thick=20 + I*5 })
     else
       local x = rand(160, PLAY_W - 160)
-      Obs.beam({ ax=x, ay=-20, bx=x, by=PLAY_H+20, warn=0.75, fire=0.28, thick=22 + I*7 })
+      Obs.beam({ ax=x, ay=-20, bx=x, by=PLAY_H+20, warn=0.95, fire=0.24, thick=20 + I*5 })
     end
   end
 end
 
 local function onHat(t, ev, target)
-  local I = intensity(t)
-  if I < 0.62 then return end
-  if love.math.random() < 0.18 + I * 0.22 then
-    -- twinkly small bullet from random edge
-    local x, y = edgePoint()
-    local dx, dy = dirToCenter(x + rand(-140, 140), y + rand(-90, 90))
-    Obs.bullet({ x=x, y=y, dx=dx, dy=dy, speed=820, r=7, fire_t=0.32, life=2.5 })
-  end
+  -- hats are off in the easy tuning -- they used to add density that
+  -- overwhelmed players in the chorus
+  return
 end
 
 local function onChorusBeat(t, ev, target)
-  -- spawn a chaser only sparsely during the climax
-  if intensity(t) > 0.82 and love.math.random() < 0.10 then
+  -- one slow chaser only in the very late climax
+  if intensity(t) >= 0.45 and love.math.random() < 0.04 then
     Obs.chaser({
       x = (love.math.random() < 0.5) and -80 or PLAY_W + 80,
       y = rand(80, PLAY_H - 80),
-      speed = 200 + intensity(t) * 70,
+      speed = 130,
       r = 18,
       life = 7,
       target = target,
