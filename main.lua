@@ -216,9 +216,12 @@ end
 -- ─── runtime FX magic-prints ─────────────────────────────────────────
 local function fxFlash(color, ms) print(string.format("[[LOVEWEB_FX]]flash %s %d", color, math.min(2500, ms))) end
 local function fxShake(intensity, ms) print(string.format("[[LOVEWEB_FX]]shake %.2f %d", math.min(1.0, intensity), math.min(2500, ms))) end
-local function fxMood(color, intensity) print(string.format("[[LOVEWEB_FX]]mood %s %.2f", color, math.min(1.0, intensity))) end
 local function fxRipple(color, x01, y01, ms) print(string.format("[[LOVEWEB_FX]]ripple %s %.2f %.2f %d", color, x01, y01, math.min(2500, ms))) end
 local function fxShatter(intensity, ms) print(string.format("[[LOVEWEB_FX]]shatter %.2f %d", math.min(1.0, intensity), math.min(2500, ms))) end
+-- mood is PERSISTENT in the portal -- it only clears with 'mood none'. We
+-- avoid setting it during gameplay so the portal CSS doesn't get stuck on
+-- a colour after the game closes.
+local function fxMoodClear() print("[[LOVEWEB_FX]]mood none") end
 
 local function colorHex(r, g, b)
   return string.format("#%02x%02x%02x", math.floor(r*255), math.floor(g*255), math.floor(b*255))
@@ -350,6 +353,9 @@ function love.load()
   font_hud   = love.graphics.newFont(28)
 
   Save.load()
+  -- ensure portal chrome is neutral on boot in case a prior session left
+  -- a persistent mood tint lingering
+  fxMoodClear()
   if Save.state.volume == nil then Save.state.volume = 0.85 end
   if Save.state.player_color == nil then Save.state.player_color = 1 end
   if Save.state.apples == nil then Save.state.apples = 0 end
@@ -704,7 +710,7 @@ local function update_lobby(dt)
     SFX.play(snd_revive)
     fxFlash("#ffffff", 280)
     fxRipple("#ffffff", 0.5, 0.5, 600)
-    fxMood(colorHex(playerColor()[1], playerColor()[2], playerColor()[3]), 0.55)
+    -- gate entry only emits one-shot ripple + flash; mood stays cleared
     Net.leave()
     newRun(0)
   end
@@ -789,20 +795,21 @@ local function update_play(dt)
 
     detectCloseCall(dt)
 
-    -- silhouette edge probe: only the boundary hurts. Interior and
-    -- exterior of the silhouette are both safe.
-    -- Probe radius MUST span at least ~2 collision-mask cells so the box
-    -- can actually see a bright/dark transition. The mask is 80x60 over
-    -- a 480x360 video, so 1 cell = 6 video px = 18 screen px at the
-    -- typical sil_scale ~3. We use 24 screen px so we always cross a cell
-    -- boundary and detect edges reliably.
+    -- Silhouette edge probe. The probe is sized in VIDEO-space pixels so
+    -- it's independent of the on-screen scale (the spritesheet shrunk to
+    -- 240x180 made the previous screen-px probe sub-cell). The collision
+    -- mask is 80x60 over a 480x360 video, so 1 cell = 6 video px. A
+    -- video-radius of 9 px gives a 18x18 video probe = 3x3 collision cells,
+    -- which reliably catches any bright/dark transition the player straddles.
     local on_edge = false
     if sil_scale > 0 then
-      local r = 24
-      local vx0 = (player.x - r - sil_dx) / sil_scale
-      local vy0 = (player.y - r - sil_dy) / sil_scale
-      local vx1 = (player.x + r - sil_dx) / sil_scale
-      local vy1 = (player.y + r - sil_dy) / sil_scale
+      local PROBE_VPX = 9
+      local cx_v = (player.x - sil_dx) / sil_scale
+      local cy_v = (player.y - sil_dy) / sil_scale
+      local vx0 = cx_v - PROBE_VPX
+      local vy0 = cy_v - PROBE_VPX
+      local vx1 = cx_v + PROBE_VPX
+      local vy1 = cy_v + PROBE_VPX
       if vx1 >= 0 and vy1 >= 0 and vx0 <= 480 and vy0 <= 360 then
         if vx0 < 0 then vx0 = 0 end
         if vy0 < 0 then vy0 = 0 end
@@ -1413,8 +1420,8 @@ end
 
 function love.quit()
   if Net.enabled then Net.leave() end
-  -- Reset portal mood / FX so the chrome doesn't stay tinted by the
-  -- player's last in-game colour after they leave.
-  fxMood("#101018", 0.0)
+  -- Mood is persistent in the portal; emit 'mood none' to clear it so the
+  -- portal CSS doesn't stay tinted after we exit.
+  fxMoodClear()
   Save.write()
 end
