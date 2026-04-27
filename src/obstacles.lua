@@ -31,9 +31,13 @@ function M.checkHit(px, py, pr)
   return nil
 end
 
--- shared pulse for synchronised border breathing across all obstacles
+-- Border breathing tied to song time so danger-edges pulse on beat.
+-- Driver feeds in the current audio_t each frame via M.setBeatTime.
+local _beat_t = 0
+function M.setBeatTime(t) _beat_t = t or 0 end
+
 local function bpulse(speed, base, amp)
-  return base + amp * math.abs(math.sin(love.timer.getTime() * speed))
+  return base + amp * math.abs(math.sin(_beat_t * speed))
 end
 
 local function pointSegDist2(px, py, ax, ay, bx, by)

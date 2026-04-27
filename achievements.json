@@ -1,11 +1,11 @@
 {
   "version": 1,
   "achievements": [
-    { "key": "first_blood",     "title": "First Blood",        "description": "Take your first hit. Welcome to dodge club.",                                       "glyph": "*", "points": 5,   "rarity": "common"     },
+    { "key": "first_blood",     "title": "Tasted the Apple",   "description": "Take your first hit.",                                                              "glyph": "*", "points": 5,   "rarity": "common"     },
     { "key": "first_dash",      "title": "Quickstep",          "description": "Use the dash for the first time.",                                                  "glyph": ">", "points": 5,   "rarity": "common"     },
     { "key": "intro_clear",     "title": "Past the Hush",      "description": "Survive the first 30 seconds.",                                                     "glyph": ".", "points": 10,  "rarity": "common"     },
-    { "key": "halfway",         "title": "Halfway House",      "description": "Survive past 1:50.",                                                                "glyph": "/", "points": 15,  "rarity": "uncommon"   },
-    { "key": "chorus_survivor", "title": "Through the Chorus", "description": "Survive past 2:30.",                                                                "glyph": "^", "points": 20,  "rarity": "uncommon"   },
+    { "key": "halfway",         "title": "Through the Mirror", "description": "Survive past 1:50.",                                                                "glyph": "/", "points": 15,  "rarity": "uncommon"   },
+    { "key": "chorus_survivor", "title": "Beneath the Chorus", "description": "Survive past 2:30.",                                                                "glyph": "^", "points": 20,  "rarity": "uncommon"   },
     { "key": "apple_complete",  "title": "Apple Consumed",     "description": "Reach the end of the song.",                                                        "glyph": "@", "points": 50,  "rarity": "rare"       },
     { "key": "untouched",       "title": "Untouched",          "description": "Finish the song without taking a single hit.",                                      "glyph": "+", "points": 200, "rarity": "legendary"  },
     { "key": "pacifist",        "title": "Pacifist Runner",    "description": "Finish the song without using dash.",                                               "glyph": "~", "points": 150, "rarity": "legendary"  },

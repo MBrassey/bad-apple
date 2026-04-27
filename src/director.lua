@@ -24,6 +24,9 @@ end
 -- Mellow ramp -- the experience priority is presence-and-rhythm, not difficulty.
 -- Climax peaks at 0.40. Most obstacles are decorative even during the chorus.
 local function intensity(t)
+  -- a tiny spike during the first 6 s so the player sees one obstacle and
+  -- learns the loop before settling into the proper intro
+  if t < 6       then return 0.05 end
   if t < 13      then return 0.03 end                                  -- intro
   if t < 46      then return 0.08 + 0.06 * ((t - 13) / 33) end         -- verse 1
   if t < 78      then return 0.16 + 0.10 * ((t - 46) / 32) end         -- chorus 1

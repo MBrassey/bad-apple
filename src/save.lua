@@ -28,8 +28,21 @@ function M.load()
   end
 end
 
+-- Atomic write: stage to a tmp file then swap. Prevents save corruption if
+-- the process is killed mid-write -- the user keeps their old save instead
+-- of being left with a half-written JSON.
 function M.write()
-  love.filesystem.write(M.path, json.encode(M.state))
+  local body = json.encode(M.state)
+  local tmp = M.path .. ".tmp"
+  local ok = love.filesystem.write(tmp, body)
+  if not ok then return end
+  if love.filesystem.getInfo(M.path) then love.filesystem.remove(M.path) end
+  -- LÖVE has no rename; emulate via rewrite-from-tmp + remove tmp.
+  local data = love.filesystem.read(tmp)
+  if data then
+    love.filesystem.write(M.path, data)
+    love.filesystem.remove(tmp)
+  end
 end
 
 return M

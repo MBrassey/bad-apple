@@ -33,6 +33,7 @@ end
 function M.tryJoinPublic()
   emit("[[LOVEWEB_NET]]create lobby Bad Apple // Beat Dash")
   M.enabled = true
+  M._inbox_cursor = 0
 end
 
 function M.leave()
@@ -56,14 +57,25 @@ function M.broadcast(player, dt)
   emit("[[LOVEWEB_NET]]send pos " .. json.encode(payload))
 end
 
--- Pull inbox events (delivered by portal as JSON lines).
+-- Pull inbox events (delivered by portal as JSON lines). Track a byte cursor
+-- so we don't re-parse already-handled lines every frame -- file is appended
+-- to by the portal but we only read forward from where we left off.
+M._inbox_cursor = 0
+
 function M.poll()
   if not M.enabled then return end
   local path = "__loveweb__/net/inbox.jsonl"
-  if not love.filesystem.getInfo(path) then return end
+  local info = love.filesystem.getInfo(path)
+  if not info then return end
+  if info.size <= M._inbox_cursor then return end
+  -- LÖVE filesystem.read can take an offset+length on a File handle; we use
+  -- the simpler full-read + slice path (file is small in practice).
   local s = love.filesystem.read(path)
   if not s then return end
-  for line in s:gmatch("[^\n]+") do
+  if #s < M._inbox_cursor then M._inbox_cursor = 0 end          -- file truncated
+  local tail = s:sub(M._inbox_cursor + 1)
+  M._inbox_cursor = #s
+  for line in tail:gmatch("[^\n]+") do
     local ok, ev = pcall(json.decode, line)
     if ok and type(ev) == "table" then
       if ev.kind == "event" and ev.verb == "pos" and ev.from and ev.payload then

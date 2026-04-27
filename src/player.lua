@@ -15,7 +15,8 @@ M.__index = M
 local SPEED         = 580
 local DASH_SPEED    = 2400
 local DASH_TIME     = 0.22
-local DASH_COOLDOWN = 0.36
+-- cooldown must exceed IFRAME_DASH so dash spam can't grant permanent invuln
+local DASH_COOLDOWN = 0.52
 local IFRAME_HIT    = 1.30
 local IFRAME_DASH   = 0.40
 local DASH_BUFFER   = 0.18
@@ -48,7 +49,7 @@ local FRAG_OFFSETS = {
   {-1, 1}, {0, 1}, {1, 1},
 }
 
-function M.new(x, y, bounds)
+function M.new(x, y, bounds, hp_bonus)
   local p = setmetatable({}, M)
   p.x, p.y = x, y
   p.vx, p.vy = 0, 0
@@ -58,7 +59,8 @@ function M.new(x, y, bounds)
   p.dash_cd = 0
   p.dash_dx, p.dash_dy = 0, 0
   p.iframes = 1.5
-  p.hp = MAX_HP
+  p.hp_bonus = hp_bonus or 0
+  p.hp = MAX_HP + p.hp_bonus
   p.alive = true
   p.dashes = 0
   p.hits = 0
@@ -208,7 +210,7 @@ function M:hit()
 end
 
 function M:revive(x, y)
-  self.hp = MAX_HP
+  self.hp = MAX_HP + (self.hp_bonus or 0)        -- preserve HP upgrade across revives
   self.alive = true
   self.death_t = 0
   for _, f in ipairs(self.frags) do f.attached = true end

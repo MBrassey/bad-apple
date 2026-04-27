@@ -83,15 +83,20 @@ local revive_t  = 0   -- "IT'S NOT OVER" duration
 local death_pos = { x = 0, y = 0 }
 local death_audio_t = 0
 local _last_mood_t = nil
+local revives_remaining = 1
 
 -- shop state
 local shop_idx = 1
 local SHOP_ITEMS = {
-  { key="sparkles", title="Bigger Sparkle Trail", desc="Doubles trail density + life",     cost=8  },
-  { key="halo",     title="Brighter Aura",        desc="Larger glow halo around the body", cost=10 },
-  { key="dash",     title="Quicker Dash",         desc="Shorter dash cooldown (-25%)",     cost=15 },
-  { key="magnet",   title="Apple Magnet",         desc="Apples drift toward you",          cost=18 },
-  { key="hp",       title="Extra Heart",          desc="One additional HP fragment",       cost=25 },
+  { key="sparkles",   title="Bigger Sparkle Trail", desc="Doubles trail density + life",        cost=8  },
+  { key="halo",       title="Brighter Aura",        desc="Larger glow halo around the body",    cost=10 },
+  { key="dash",       title="Quicker Dash",         desc="25% shorter dash cooldown",           cost=15 },
+  { key="magnet",     title="Apple Magnet",         desc="Apples drift toward you",             cost=18 },
+  { key="hp",         title="Extra Heart",          desc="One additional HP fragment",          cost=25 },
+  { key="magnet2",    title="Greater Magnet",       desc="Apple pull range nearly doubles",     cost=20 },
+  { key="revive2",    title="Second Wind",          desc="One additional auto-revive per run",  cost=30 },
+  { key="score",      title="Sharper Score",        desc="+25% score on every run",             cost=35 },
+  { key="apple_rate", title="Orchard's Bounty",     desc="Apples spawn 30% more often",         cost=40 },
 }
 
 -- gameplay metrics
@@ -163,7 +168,8 @@ local function playBounds()
 end
 
 local function newRun(fromTime)
-  player = Player.new(DESIGN_W * 0.5, DESIGN_H * 0.5, playBounds())
+  local hp_bonus = (Save.state.upgrades and Save.state.upgrades.hp) and 1 or 0
+  player = Player.new(DESIGN_W * 0.5, DESIGN_H * 0.5, playBounds(), hp_bonus)
   startSongAt(fromTime or 0)
   Save.state.runs = (Save.state.runs or 0) + 1
   Save.write()
@@ -180,10 +186,10 @@ local function newRun(fromTime)
   Apples.reset()
   Apples.player_ref = player
   Apples.magnet = Save.state.upgrades and Save.state.upgrades.magnet or false
-  -- apply HP upgrade
-  if Save.state.upgrades and Save.state.upgrades.hp then
-    player.hp = player.hp + 1
-  end
+  Apples.magnet2 = Save.state.upgrades and Save.state.upgrades.magnet2 or false
+  Apples.spawn_boost = Save.state.upgrades and Save.state.upgrades.apple_rate or false
+  -- second-wind upgrade: two revives per run instead of one
+  revives_remaining = (Save.state.upgrades and Save.state.upgrades.revive2) and 2 or 1
   if Save.state.upgrades and Save.state.upgrades.dash then
     player.dash_cooldown_mul = 0.75
   end
@@ -199,7 +205,10 @@ end
 -- resumes from where they died.
 local function revive()
   player:revive(death_pos.x, death_pos.y)
-  startSongAt(math.max(0, death_audio_t - 0.25))
+  -- rewind 0.6 s so the player has runway to react after revive; this is
+  -- larger than the maximum obstacle warn (0.65) plus a small margin so
+  -- events that already fired pre-death aren't re-fired on resume
+  startSongAt(math.max(0, death_audio_t - 0.6))
   music_duck = 1.0
   if source then source:setVolume(Save.state.volume or 0.85) end
   Director.resetGate()
@@ -236,14 +245,12 @@ function love.load()
   if Save.state.volume == nil then Save.state.volume = 0.85 end
   if Save.state.player_color == nil then Save.state.player_color = 1 end
   if Save.state.apples == nil then Save.state.apples = 0 end
-  if Save.state.upgrades == nil then
-    Save.state.upgrades = {
-      sparkles = false,    -- 8 -- doubles sparkle density and life
-      halo     = false,    -- 10 -- bigger glow halo around the body
-      dash     = false,    -- 15 -- shorter dash cooldown
-      magnet   = false,    -- 18 -- apples drift toward player
-      hp       = false,    -- 25 -- one extra HP fragment
-    }
+  if Save.state.upgrades == nil then Save.state.upgrades = {} end
+  -- ensure each upgrade key exists with a default; prevents nil-deref if a
+  -- save predates a newly-added upgrade
+  for _, k in ipairs({ "sparkles","halo","dash","magnet","hp",
+                       "magnet2","revive2","score","apple_rate" }) do
+    if Save.state.upgrades[k] == nil then Save.state.upgrades[k] = false end
   end
   Net.load()
   _wall_t0 = love.timer.getTime()
@@ -362,7 +369,10 @@ function love.keypressed(key)
         SFX.play(snd_revive)
         fxFlash("#ffffff", 220)
       end
-    elseif key == "escape" or key == "b" then state = "menu"; SFX.play(snd_tick) end
+    elseif key == "escape" or key == "b" then
+      state = "menu"; SFX.play(snd_tick)
+      if source then source:pause() end
+    end
   end
 end
 
@@ -444,6 +454,13 @@ function love.update(dt)
     return
   end
 
+  -- Shop pauses the world: no beats fire, no obstacles update, no apples
+  -- spawn, audio source is paused so the song doesn't drift while you shop.
+  if state == "shop" then
+    if source and source:isPlaying() then source:pause() end
+    return
+  end
+
   if state == "dying" then
     dying_t = dying_t + dt
     bg_pulse = math.max(0, bg_pulse - dt * 0.6)
@@ -487,6 +504,7 @@ function love.update(dt)
     end
 
     Beats.fire(audio_t, fireEvent)
+    Obstacles.setBeatTime(audio_t)
     Obstacles.updateAll(dt, audio_t)
     player:update(dt)
     Video.update(audio_t, 0.6)         -- prefetch upcoming sheet
@@ -548,7 +566,8 @@ function love.update(dt)
     end
 
     -- score: time alive + dash bonus
-    score = math.floor(audio_t * 10 + player.dashes * 5 + best_combo * 2)
+    local mul = (Save.state.upgrades and Save.state.upgrades.score) and 1.25 or 1.0
+    score = math.floor((audio_t * 10 + player.dashes * 5 + best_combo * 2) * mul)
 
     -- live checkpoint advance
     if audio_t - checkpoint_time > 12 then
@@ -563,7 +582,12 @@ function love.update(dt)
     -- pulses decay
     bg_pulse   = math.max(0, bg_pulse  - dt * 3.0)
     kick_pulse = math.max(0, kick_pulse - dt * 4.0)
-    sil_glow   = math.min(1, 0.30 + Beats.proximity(Beats.kicks, audio_t, 0.18) * 0.8)
+    -- silhouette breathes on the kick AND brightens whenever the player
+    -- dashes through it -- makes the shadow feel like an antagonist that
+    -- reacts to your defiance, not just decoration
+    local target_glow = 0.30 + Beats.proximity(Beats.kicks, audio_t, 0.18) * 0.8
+    if player and player:dashing() then target_glow = math.min(1, target_glow + 0.45) end
+    sil_glow = sil_glow + (target_glow - sil_glow) * math.min(1, dt * 8)
     shake_t    = math.max(0, shake_t - dt)
     flash_t    = math.max(0, flash_t - dt)
 
@@ -726,10 +750,14 @@ local function drawMenu()
   love.graphics.rectangle("fill", 0, 0, DESIGN_W, DESIGN_H)
   love.graphics.setFont(font_big)
   love.graphics.setColor(1, 0.85, 0.95, 1)
-  love.graphics.printf("BAD  APPLE", 0, 220, DESIGN_W, "center")
+  love.graphics.printf("BAD  APPLE", 0, 200, DESIGN_W, "center")
   love.graphics.setFont(font_med)
   love.graphics.setColor(1, 0.55, 0.85, 1)
-  love.graphics.printf("BEAT  DASH", 0, 340, DESIGN_W, "center")
+  love.graphics.printf("BEAT  DASH", 0, 320, DESIGN_W, "center")
+  love.graphics.setFont(font_small)
+  love.graphics.setColor(1, 1, 1, 0.65)
+  love.graphics.printf("dodge the shadow.  consume the apple.",
+                       0, 410, DESIGN_W, "center")
   love.graphics.setFont(font_small)
   love.graphics.setColor(1,1,1,0.85)
   local lines = {
@@ -917,7 +945,10 @@ local function drawWin()
   love.graphics.rectangle("fill", 0, 0, DESIGN_W, DESIGN_H)
   love.graphics.setFont(font_big)
   love.graphics.setColor(0.85, 1.0, 0.95, 1)
-  love.graphics.printf("APPLE  CONSUMED", 0, 220, DESIGN_W, "center")
+  love.graphics.printf("APPLE  CONSUMED", 0, 200, DESIGN_W, "center")
+  love.graphics.setFont(font_small)
+  love.graphics.setColor(1, 0.85, 0.95, 0.9)
+  love.graphics.printf("the shadow fades.", 0, 310, DESIGN_W, "center")
   love.graphics.setFont(font_med)
   love.graphics.setColor(1, 0.85, 0.95, 1)
   love.graphics.printf(string.format("score %07d   hits %d   dashes %d   best combo x%d",
@@ -925,10 +956,13 @@ local function drawWin()
     0, 380, DESIGN_W, "center")
   love.graphics.setFont(font_small)
   love.graphics.setColor(1,1,1,0.85)
-  love.graphics.printf("ENTER  " .. (LOOP and "play again" or "back to menu"),
-    0, 500, DESIGN_W, "center")
+  love.graphics.printf(string.format("you have eaten  %d  apples in total",
+                       Save.state.apples or 0),
+    0, 460, DESIGN_W, "center")
+  love.graphics.printf("ENTER  " .. (LOOP and "play again" or "back to menu") .. "     B  apple shop",
+    0, 510, DESIGN_W, "center")
   love.graphics.printf(string.format("L  replay-on-win  [%s]", LOOP and "ON" or "OFF"),
-    0, 540, DESIGN_W, "center")
+    0, 545, DESIGN_W, "center")
 end
 
 -- ─── master draw ─────────────────────────────────────────────────────

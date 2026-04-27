@@ -34,13 +34,16 @@ function M.spawn(x, y)
   })
 end
 
-M.magnet = false  -- apples drift toward player when true
+M.magnet  = false   -- apples drift toward player when true
+M.magnet2 = false   -- doubled magnet range
+M.spawn_boost = false  -- 30 % faster spawn cadence
 M.player_ref = nil
 
 function M.update(dt, intensity)
   -- spawn timer
   local period = SPAWN_PERIOD_BASE
                   + (SPAWN_PERIOD_MIN - SPAWN_PERIOD_BASE) * math.min(1, intensity * 1.4)
+  if M.spawn_boost then period = period * 0.70 end
   M._spawn_acc = M._spawn_acc + dt
   if M._spawn_acc >= period then
     M._spawn_acc = 0
@@ -57,10 +60,12 @@ function M.update(dt, intensity)
       a.vx = a.vx * (1 - dt * 0.6)
       a.vy = a.vy * (1 - dt * 0.6)
       if M.magnet and M.player_ref then
+        local range = M.magnet2 and 820 or 480
+        local strength = M.magnet2 and 320 or 220
         local dx, dy = M.player_ref.x - a.x, M.player_ref.y - a.y
         local d = math.sqrt(dx*dx + dy*dy)
-        if d > 1 and d < 480 then
-          local pull = 220 * (1 - d / 480)
+        if d > 1 and d < range then
+          local pull = strength * (1 - d / range)
           a.vx = a.vx + (dx/d) * pull * dt
           a.vy = a.vy + (dy/d) * pull * dt
         end
