@@ -45,15 +45,18 @@ extern number time_;
 extern vec2 player_;
 extern vec3 accent_;
 
+// Floor: stable dark blue-grey grid. Accent only contributes to the soft
+// pool of light beneath the player's square -- the rest of the canvas
+// stays a calm dark theme regardless of what colour is in motion.
 vec4 effect(vec4 col, Image t, vec2 uv, vec2 sc) {
   vec2 g = abs(fract(uv * 28.0) - 0.5);
   float line = smoothstep(0.46, 0.50, max(g.x, g.y));
   vec2 dp = (uv - player_) * vec2(1.0, 0.5625);
   float r = length(dp);
   float pool = smoothstep(0.30, 0.0, r) * 0.55;
-  vec3 base = vec3(0.018, 0.012, 0.045) + accent_ * (line * 0.20 + pool * 0.55);
-  float band = smoothstep(0.92, 1.00, fract(uv.y * 4.0 - time_ * 0.18));
-  base += accent_ * band * 0.10;
+  vec3 base = vec3(0.014, 0.014, 0.022)
+             + vec3(0.40, 0.42, 0.55) * line * 0.10
+             + accent_ * pool * 0.45;
   return vec4(base, 1.0) * col;
 }
 ]]
@@ -98,16 +101,20 @@ end
 -- HUD
 ------------------------------------------------------------------
 
-local function panelFrame(x, y, w, h, accent)
-  -- back fill
-  love.graphics.setColor(0.04, 0.025, 0.06, 0.92)
+-- Panel chrome -- stable neutral, never pulses. The HUD frame stays the
+-- same colour while the player walks around so the eye can rest. Accent
+-- is reserved for the player and the gate, which DO change.
+local CHROME      = { 0.55, 0.62, 0.78, 1 }
+local CHROME_RIM  = { 0.55, 0.62, 0.78, 0.45 }
+local PANEL_FILL  = { 0.030, 0.032, 0.045, 0.94 }
+
+local function panelFrame(x, y, w, h)
+  love.graphics.setColor(PANEL_FILL[1], PANEL_FILL[2], PANEL_FILL[3], PANEL_FILL[4])
   love.graphics.rectangle("fill", x, y, w, h, 12, 12)
-  -- accent rim
-  love.graphics.setColor(accent[1], accent[2], accent[3], 0.55)
+  love.graphics.setColor(CHROME_RIM[1], CHROME_RIM[2], CHROME_RIM[3], CHROME_RIM[4])
   love.graphics.setLineWidth(2)
   love.graphics.rectangle("line", x, y, w, h, 12, 12)
-  -- corner ticks (sophisticated HUD detailing)
-  love.graphics.setColor(accent[1], accent[2], accent[3], 0.95)
+  love.graphics.setColor(CHROME[1], CHROME[2], CHROME[3], 0.85)
   love.graphics.setLineWidth(2)
   local t = 14
   love.graphics.line(x, y + t, x + t, y); love.graphics.line(x + w - t, y, x + w, y + t)
@@ -154,7 +161,7 @@ local function drawSwatch(x, y, sz, rgb, selected, locked)
 end
 
 local function drawTopBar(accent, fonts, ctx)
-  panelFrame(20, 20, DESIGN_W - 40, TOP_H - 40, accent)
+  panelFrame(20, 20, DESIGN_W - 40, TOP_H - 40)
   -- handle
   love.graphics.setFont(fonts.med)
   love.graphics.setColor(accent[1], accent[2], accent[3], 1)
@@ -163,7 +170,8 @@ local function drawTopBar(accent, fonts, ctx)
   love.graphics.setFont(fonts.small)
   love.graphics.setColor(1, 1, 1, 0.55)
   love.graphics.print("CHARACTER HOME  //  CYBER LOBBY", 50, 80)
-  -- centre: completion ring + counter
+  -- centre: completion ring + counter (uses player's chosen colour, NOT a
+  -- drifting accent, so the chrome stays calm)
   local cx = DESIGN_W * 0.5
   local cy = 65
   local pct = math.min(1, (ctx.completions or 0) / 8.0)
@@ -175,8 +183,8 @@ local function drawTopBar(accent, fonts, ctx)
   love.graphics.setLineWidth(1)
   love.graphics.setFont(fonts.small)
   love.graphics.setColor(1, 1, 1, 0.95)
-  love.graphics.printf(string.format("LEVELS  %d", ctx.completions or 0),
-                       cx - 80, cy + 38, 160, "center")
+  love.graphics.printf(string.format("LEVELS CLEARED  %d", ctx.completions or 0),
+                       cx - 120, cy + 38, 240, "center")
   -- right: peer count
   love.graphics.setFont(fonts.small)
   love.graphics.setColor(0.7, 0.95, 1.0, 1)
@@ -189,7 +197,7 @@ end
 
 local function drawLeftPanel(accent, fonts, ctx)
   local x, y, w, h = 20, TOP_H, SIDE_W - 40, DESIGN_H - TOP_H - BOTTOM_H
-  panelFrame(x, y, w, h, accent)
+  panelFrame(x, y, w, h)
   love.graphics.setFont(fonts.med)
   love.graphics.setColor(accent[1], accent[2], accent[3], 1)
   love.graphics.print("APPEARANCE", x + 22, y + 22)
@@ -230,12 +238,16 @@ local function drawLeftPanel(accent, fonts, ctx)
       elseif sel then love.graphics.setColor(1, 1, 1, 1)
       else love.graphics.setColor(1, 1, 1, 0.85) end
       love.graphics.print(a.name, x + 50, row_y)
+      -- Locked rows show a small lock badge on the right -- never overlapping
+      -- the name text.
       if locked then
-        love.graphics.setColor(1, 0.55, 0.55, 0.85)
-        love.graphics.printf(string.format("%d wins", math.max(0, (a.unlock_at or 0) - (ctx.completions or 0))),
-                             x + 22, row_y, w - 44, "right")
+        local lx, ly = x + w - 38, row_y + 4
+        love.graphics.setColor(1, 1, 1, 0.55)
+        love.graphics.setLineWidth(2)
+        love.graphics.arc("line", "open", lx, ly + 4, 5, math.pi, math.pi * 2)
+        love.graphics.rectangle("fill", lx - 5, ly + 4, 10, 8, 1, 1)
+        love.graphics.setLineWidth(1)
       end
-      -- click target spans the full row
       recordHit(kind, i, x + 18, row_y - 4, w - 36, 28, locked)
     end
     return ay + 50 + #items * 32
@@ -255,7 +267,7 @@ local function drawRightPanel(accent, fonts, ctx)
   local y = TOP_H
   local w = SIDE_W - 40
   local h = DESIGN_H - TOP_H - BOTTOM_H
-  panelFrame(x, y, w, h, accent)
+  panelFrame(x, y, w, h)
   love.graphics.setFont(fonts.med)
   love.graphics.setColor(accent[1], accent[2], accent[3], 1)
   love.graphics.print("PROFILE", x + 22, y + 22)
@@ -292,7 +304,7 @@ local function drawRightPanel(accent, fonts, ctx)
 end
 
 local function drawBottomBar(accent, fonts, ctx)
-  panelFrame(20, DESIGN_H - BOTTOM_H + 20, DESIGN_W - 40, BOTTOM_H - 40, accent)
+  panelFrame(20, DESIGN_H - BOTTOM_H + 20, DESIGN_W - 40, BOTTOM_H - 40)
   love.graphics.setFont(fonts.small)
   love.graphics.setColor(1, 1, 1, 0.85)
   love.graphics.printf("WASD / arrows  move    SPACE / SHIFT  dash    " ..

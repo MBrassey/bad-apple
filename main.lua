@@ -29,21 +29,21 @@ local Character  = require "src.character"
 
 local DESIGN_W, DESIGN_H = 1920, 1080
 
--- Player colour palette. ALL colours are free from the start -- the player
--- can pick any. Effects / trails / shapes are what unlock through wins.
+-- Player colour palette. All free from the start. Effects / trails / shapes
+-- are what unlock through wins. Names are thematic, not generic.
 local PLAYER_PALETTE = {
-  { name = "neon pink",  rgb = { 1.00, 0.40, 0.72 }, unlock_at = 0 },
-  { name = "cyan",       rgb = { 0.30, 0.92, 1.00 }, unlock_at = 0 },
-  { name = "violet",     rgb = { 0.80, 0.55, 1.00 }, unlock_at = 0 },
-  { name = "amber",      rgb = { 1.00, 0.80, 0.40 }, unlock_at = 0 },
-  { name = "lime",       rgb = { 0.55, 1.00, 0.50 }, unlock_at = 0 },
-  { name = "ember",      rgb = { 1.00, 0.50, 0.35 }, unlock_at = 0 },
-  { name = "sky",        rgb = { 0.55, 0.85, 1.00 }, unlock_at = 0 },
-  { name = "ivory",      rgb = { 0.95, 0.95, 0.95 }, unlock_at = 0 },
-  { name = "void",       rgb = { 0.30, 0.20, 0.55 }, unlock_at = 0 },
-  { name = "blood",      rgb = { 0.90, 0.10, 0.20 }, unlock_at = 0 },
-  { name = "phantom",    rgb = { 0.60, 1.00, 0.85 }, unlock_at = 0 },
-  { name = "gold",       rgb = { 1.00, 0.85, 0.10 }, unlock_at = 0 },
+  { name = "Sakura",   rgb = { 1.00, 0.40, 0.72 }, unlock_at = 0 },
+  { name = "Glacier",  rgb = { 0.30, 0.92, 1.00 }, unlock_at = 0 },
+  { name = "Twilight", rgb = { 0.80, 0.55, 1.00 }, unlock_at = 0 },
+  { name = "Sundown",  rgb = { 1.00, 0.80, 0.40 }, unlock_at = 0 },
+  { name = "Verdant",  rgb = { 0.55, 1.00, 0.50 }, unlock_at = 0 },
+  { name = "Cinder",   rgb = { 1.00, 0.50, 0.35 }, unlock_at = 0 },
+  { name = "Aurora",   rgb = { 0.55, 0.85, 1.00 }, unlock_at = 0 },
+  { name = "Pearl",    rgb = { 0.95, 0.95, 0.95 }, unlock_at = 0 },
+  { name = "Eclipse",  rgb = { 0.30, 0.20, 0.55 }, unlock_at = 0 },
+  { name = "Crimson",  rgb = { 0.90, 0.10, 0.20 }, unlock_at = 0 },
+  { name = "Wisp",     rgb = { 0.60, 1.00, 0.85 }, unlock_at = 0 },
+  { name = "Olympia",  rgb = { 1.00, 0.85, 0.10 }, unlock_at = 0 },
 }
 
 -- Obstacle / accent rotation palette. The world drifts through these as the
@@ -87,27 +87,24 @@ local function paletteUnlocked(idx)
   return (Save.state.completions or 0) >= (p.unlock_at or 0)
 end
 
--- Auras: extra visual rings around the body. Equipped via Save.state.aura_id.
 local AURAS = {
-  { id = "default", name = "Default Halo",   unlock_at = 0 },
-  { id = "ring",    name = "Spinning Ring",  unlock_at = 1 },
-  { id = "twin",    name = "Twin Echoes",    unlock_at = 3 },
-  { id = "starlit", name = "Starlit Halo",   unlock_at = 5 },
+  { id = "default", name = "Vacant",        unlock_at = 0 },
+  { id = "ring",    name = "Saturn's Lace", unlock_at = 1 },
+  { id = "twin",    name = "Mirror Echo",   unlock_at = 3 },
+  { id = "starlit", name = "Star Court",    unlock_at = 5 },
 }
 
--- Trail / tracer styles. Equipped via Save.state.trail_id.
 local TRAILS = {
-  { id = "sparkle", name = "Sparkle",        unlock_at = 0 },
-  { id = "comet",   name = "Comet Ribbon",   unlock_at = 2 },
-  { id = "ember",   name = "Ember Tracer",   unlock_at = 4 },
-  { id = "ghost",   name = "Ghost Echoes",   unlock_at = 6 },
+  { id = "sparkle", name = "Glint",         unlock_at = 0 },
+  { id = "comet",   name = "Comet's Tail",  unlock_at = 2 },
+  { id = "ember",   name = "Pyre Wake",     unlock_at = 4 },
+  { id = "ghost",   name = "Phantom Drift", unlock_at = 6 },
 }
 
--- Body shapes. Equipped via Save.state.shape_id.
 local SHAPES = {
-  { id = "square",  name = "Square",         unlock_at = 0 },
-  { id = "diamond", name = "Diamond",        unlock_at = 2 },
-  { id = "hex",     name = "Hexagon",        unlock_at = 4 },
+  { id = "square",  name = "Cube",          unlock_at = 0 },
+  { id = "diamond", name = "Cipher",        unlock_at = 2 },
+  { id = "hex",     name = "Lattice",       unlock_at = 4 },
 }
 
 local function auraUnlocked(idx)
@@ -696,15 +693,12 @@ end
 local function update_lobby(dt)
   Lobby.update(dt)
   Net.broadcast(player, dt, playerColor(), Save.state.upgrades)
-  if not _last_mood_t or (love.timer.getTime() - _last_mood_t) > 0.5 then
-    fxMood(colorHex(accent[1], accent[2], accent[3]), 0.25)
-    _last_mood_t = love.timer.getTime()
-  end
   -- the gate is the entry into the level: walking through it starts the song
   if Lobby.shouldEnterLevel() then
     SFX.play(snd_revive)
     fxFlash("#ffffff", 280)
     fxRipple("#ffffff", 0.5, 0.5, 600)
+    fxMood(colorHex(playerColor()[1], playerColor()[2], playerColor()[3]), 0.55)
     Net.leave()
     newRun(0)
   end
@@ -791,9 +785,14 @@ local function update_play(dt)
 
     -- silhouette edge probe: only the boundary hurts. Interior and
     -- exterior of the silhouette are both safe.
+    -- Probe radius MUST span at least ~2 collision-mask cells so the box
+    -- can actually see a bright/dark transition. The mask is 80x60 over
+    -- a 480x360 video, so 1 cell = 6 video px = 18 screen px at the
+    -- typical sil_scale ~3. We use 24 screen px so we always cross a cell
+    -- boundary and detect edges reliably.
     local on_edge = false
     if sil_scale > 0 then
-      local r = player.size * 0.18
+      local r = 24
       local vx0 = (player.x - r - sil_dx) / sil_scale
       local vy0 = (player.y - r - sil_dy) / sil_scale
       local vx1 = (player.x + r - sil_dx) / sil_scale
@@ -880,17 +879,12 @@ local function update_play(dt)
     shake_t    = math.max(0, shake_t - dt)
     flash_t    = math.max(0, flash_t - dt)
 
-    -- multi-colour accent: cycle through the world palette so the canvas
-    -- isn't stuck on a single hue. Drift slightly faster as intensity climbs
+    -- accent stays anchored to a per-run hue so the canvas chrome doesn't
+    -- visibly shift the whole time you play. Per-obstacle colours still
+    -- come from the world palette via Director.colourFor.
     local I = Director.intensity(audio_t)
-    local wa = worldAccent(audio_t * (1.0 + I * 0.6))
+    local wa = worldAccent((Save.state.runs or 0) * 7.31)
     accent[1], accent[2], accent[3] = wa[1], wa[2], wa[3]
-    -- emit mood at most ~3 Hz to avoid stdout spam
-    if not _last_mood_t or audio_t - _last_mood_t > 0.35 then
-      fxMood(colorHex(accent[1], accent[2], accent[3]), 0.20 + 0.45 * I)
-      _last_mood_t = audio_t
-    end
-
     checkAchievements()
 end
 
@@ -1413,5 +1407,8 @@ end
 
 function love.quit()
   if Net.enabled then Net.leave() end
+  -- Reset portal mood / FX so the chrome doesn't stay tinted by the
+  -- player's last in-game colour after they leave.
+  fxMood("#101018", 0.0)
   Save.write()
 end
