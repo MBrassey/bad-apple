@@ -43,7 +43,7 @@ function M.leave()
   M.ghosts = {}
 end
 
-function M.broadcast(player, dt)
+function M.broadcast(player, dt, color, upgrades)
   if not M.enabled then return end
   M.send_t = M.send_t + dt
   if M.send_t < 1 / M.SEND_HZ then return end
@@ -53,6 +53,11 @@ function M.broadcast(player, dt)
     y = math.floor(player.y),
     hp = player.hp,
     d = player:dashing() and 1 or 0,
+    c = color and { math.floor(color[1]*255), math.floor(color[2]*255), math.floor(color[3]*255) } or nil,
+    u = upgrades and {
+      h = upgrades.halo and 1 or 0,
+      s = upgrades.sparkles and 1 or 0,
+    } or nil,
   }
   emit("[[LOVEWEB_NET]]send pos " .. json.encode(payload))
 end
@@ -87,6 +92,20 @@ function M.poll()
         g.dashing = (p.d or 0) == 1
         g.t = love.timer.getTime()
         g.handle = ev.handle or "?"
+        if p.c and #p.c == 3 then
+          g.color = { p.c[1] / 255, p.c[2] / 255, p.c[3] / 255 }
+        end
+        if p.u then
+          g.halo = (p.u.h or 0) == 1
+          g.sparkles = (p.u.s or 0) == 1
+        end
+        -- maintain a short trail of the ghost's recent positions for sparkle FX
+        g.trail = g.trail or {}
+        if g.was_dashing or g.dashing then
+          table.insert(g.trail, 1, { x = g.x, y = g.y, t = 0 })
+          while #g.trail > 30 do table.remove(g.trail) end
+        end
+        g.was_dashing = g.dashing
         M.ghosts[ev.from] = g
       elseif ev.kind == "leave" and ev.from then
         M.ghosts[ev.from] = nil
@@ -101,7 +120,12 @@ function M.update(dt)
       g.x = g.x + (g.tx - g.x) * math.min(1, dt * 6)
       g.y = g.y + (g.ty - g.y) * math.min(1, dt * 6)
     end
-    -- expire stale ghosts after 4 s of silence
+    if g.trail then
+      for i = #g.trail, 1, -1 do
+        g.trail[i].t = g.trail[i].t + dt
+        if g.trail[i].t > 0.45 then table.remove(g.trail, i) end
+      end
+    end
     if g.t and (love.timer.getTime() - g.t) > 4 then
       M.ghosts[id] = nil
     end
@@ -111,17 +135,52 @@ end
 function M.draw()
   for _, g in pairs(M.ghosts) do
     if g.x and g.y then
-      local sz = 22 + (g.hp or 4) * 3.5
-      love.graphics.setColor(0.7, 0.85, 1.0, 0.18)
-      love.graphics.rectangle("fill", g.x - sz*0.7, g.y - sz*0.7, sz*1.4, sz*1.4, sz*0.3, sz*0.3)
-      love.graphics.setColor(0.9, 1.0, 1.0, g.dashing and 0.55 or 0.35)
+      local cr, cg, cb = 0.85, 0.95, 1.0
+      if g.color then cr, cg, cb = g.color[1], g.color[2], g.color[3] end
+      -- trail (during dashes)
+      if g.trail then
+        for _, p in ipairs(g.trail) do
+          local k = 1 - p.t / 0.45
+          if k > 0 then
+            local s = 26 * (0.6 + 0.5 * k)
+            love.graphics.setColor(cr, cg, cb, 0.18 * k)
+            love.graphics.rectangle("fill", p.x - s*0.5, p.y - s*0.5, s, s, s*0.22, s*0.22)
+          end
+        end
+      end
+      -- glow halo (wider if peer has halo upgrade)
+      local halo_n = g.halo and 6 or 3
+      for i = halo_n, 1, -1 do
+        local s = 36 + i * 14
+        love.graphics.setColor(cr, cg, cb, 0.06)
+        love.graphics.rectangle("fill", g.x - s*0.5, g.y - s*0.5, s, s, s*0.28, s*0.28)
+      end
+      -- bright white border
+      local sz = 36 + math.max(0, math.min(8, (g.hp or 4))) * 0.4
+      love.graphics.setColor(1, 1, 1, g.dashing and 1.0 or 0.85)
+      love.graphics.rectangle("fill", g.x - sz*0.5 - 2, g.y - sz*0.5 - 2,
+                              sz + 4, sz + 4, (sz+4)*0.22, (sz+4)*0.22)
+      -- accent core
+      love.graphics.setColor(cr, cg, cb, 1)
       love.graphics.rectangle("fill", g.x - sz*0.5, g.y - sz*0.5, sz, sz, sz*0.22, sz*0.22)
+      -- inner white sparkle
+      love.graphics.setColor(1, 1, 1, 0.85)
+      local inner = sz * 0.42
+      love.graphics.rectangle("fill", g.x - inner*0.5, g.y - inner*0.5, inner, inner,
+                              inner*0.30, inner*0.30)
+      -- handle label
       if g.handle then
-        love.graphics.setColor(1, 1, 1, 0.55)
-        love.graphics.printf(g.handle, g.x - 80, g.y - sz - 24, 160, "center")
+        love.graphics.setColor(1, 1, 1, 0.75)
+        love.graphics.printf(g.handle, g.x - 100, g.y - sz - 30, 200, "center")
       end
     end
   end
+end
+
+function M.peerCount()
+  local n = 0
+  for _ in pairs(M.ghosts) do n = n + 1 end
+  return n
 end
 
 return M

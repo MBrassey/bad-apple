@@ -24,6 +24,7 @@ local Net        = require "src.multiplayer"
 local SFX        = require "src.sfx"
 local Mosaic     = require "src.mosaic"
 local Apples     = require "src.apples"
+local Lobby      = require "src.lobby"
 
 local DESIGN_W, DESIGN_H = 1920, 1080
 
@@ -233,6 +234,7 @@ function love.load()
   world:setFilter("linear", "linear")
   Glow.load(DESIGN_W, DESIGN_H)
   Mosaic.load()
+  Lobby.load()
   glitch_shader = love.graphics.newShader(glitch_shader_code)
 
   font_huge  = love.graphics.newFont(150)
@@ -311,7 +313,17 @@ function love.keypressed(key)
     elseif key == "b" then SFX.play(snd_tick); state = "shop"; shop_idx = 1
     elseif key == "m" then
       SFX.play(snd_tick)
-      if Net.enabled then Net.leave() else Net.tryJoinPublic() end
+      if not Net.enabled then Net.tryJoinPublic() end
+      -- enter the cyber lobby state with a fresh player avatar
+      local hp_bonus = (Save.state.upgrades and Save.state.upgrades.hp) and 1 or 0
+      player = Player.new(DESIGN_W * 0.5, DESIGN_H * 0.5,
+                          { x = 80, y = 100, w = DESIGN_W - 160, h = DESIGN_H - 200 },
+                          hp_bonus)
+      if Save.state.upgrades and Save.state.upgrades.sparkles then player.sparkle_boost = true end
+      if Save.state.upgrades and Save.state.upgrades.halo then player.halo_boost = true end
+      if Save.state.upgrades and Save.state.upgrades.dash then player.dash_cooldown_mul = 0.75 end
+      Lobby.enter(player)
+      state = "lobby"
     elseif key == "-" or key == "kp-" then
       Save.state.volume = math.max(0, (Save.state.volume or 0.85) - 0.05); Save.write()
     elseif key == "=" or key == "+" or key == "kp+" then
@@ -355,6 +367,14 @@ function love.keypressed(key)
     elseif key == "b" then state = "shop"; SFX.play(snd_tick)
     elseif key == "escape" then state = "menu"
     elseif key == "l" then LOOP = not LOOP end
+  elseif state == "lobby" then
+    if key == "space" or key == "lshift" or key == "rshift" then
+      if player and player:tryDash() then SFX.play(snd_dash) end
+    elseif key == "escape" or key == "m" then
+      Net.leave()
+      SFX.play(snd_tick)
+      state = "menu"
+    end
   elseif state == "shop" then
     if key == "up" or key == "w" then
       shop_idx = ((shop_idx - 2) % #SHOP_ITEMS) + 1; SFX.play(snd_tick)
@@ -461,6 +481,17 @@ function love.update(dt)
     return
   end
 
+  if state == "lobby" then
+    Lobby.update(dt)
+    Net.broadcast(player, dt, playerColor(), Save.state.upgrades)
+    -- mood drift in the lobby too, so portal chrome reacts
+    if not _last_mood_t or (love.timer.getTime() - _last_mood_t) > 0.5 then
+      fxMood(colorHex(accent[1], accent[2], accent[3]), 0.25)
+      _last_mood_t = love.timer.getTime()
+    end
+    return
+  end
+
   if state == "dying" then
     dying_t = dying_t + dt
     bg_pulse = math.max(0, bg_pulse - dt * 0.6)
@@ -518,7 +549,7 @@ function love.update(dt)
       end
     end
 
-    Net.broadcast(player, dt)
+    Net.broadcast(player, dt, playerColor(), Save.state.upgrades)
 
     detectCloseCall(dt)
 
@@ -767,7 +798,7 @@ local function drawMenu()
       or  "(checkpoints save every 12s during play)",
     "<- / ->   choose your colour",
     string.format("L   replay-on-win  [%s]", LOOP and "ON" or "OFF"),
-    string.format("M   lobby ghosts   [%s]", Net.enabled and "ON" or "OFF"),
+    string.format("M   cyber lobby   [%s]", Net.enabled and "ON" or "OFF"),
     string.format("- / +   volume  [%d%%]", math.floor((Save.state.volume or 0.85) * 100)),
     "B   apple shop",
     "ESC  quit",
@@ -989,6 +1020,13 @@ function love.draw()
   drawBackdrop()
   if state == "menu" then
     drawMenu()
+  elseif state == "lobby" then
+    local handle = (Net.identity and Net.identity.handle) or "you"
+    if Net.identity and not Net.identity.signedIn then handle = "guest" end
+    Lobby.draw(playerColor(), Net.peerCount and Net.peerCount() or 0,
+               "BAD APPLE  //  CYBER LOBBY", handle)
+    Net.draw()
+    if player then player:draw(playerColor()) end
   else
     drawSilhouetteWithGlow(audio_t)
     Net.draw()
@@ -1003,6 +1041,9 @@ function love.draw()
     if state == "reviving" then drawNotOverScreen() end
     if state == "win"      then drawWin()           end
     if state == "shop"     then drawShop()          end
+    if state == "lobby"    then
+      -- override the silhouette + obstacles draw with the lobby scene
+    end
   end
   love.graphics.setCanvas()
   love.graphics.pop()
