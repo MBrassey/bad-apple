@@ -169,9 +169,12 @@ local death_audio_t = 0
 local _last_mood_t = nil
 local revives_remaining = 1
 -- Silhouette EDGE hazard: contact with the silhouette boundary is an
--- instant hit, just like contact with a spawned obstacle's hot zone.
--- Inside the silhouette and outside in the backdrop are both safe -- only
--- the actual outline of the shadow hurts you.
+-- instant hit, like contact with a spawned obstacle's hot zone. Inside
+-- the silhouette and outside in the backdrop are both safe -- only the
+-- actual outline of the shadow hurts. The outline isn't static, so we
+-- also check whether the morphing boundary swept across the player's
+-- position between frames.
+local last_silhouette_bit = nil    -- bit under player center on the previous frame
 
 -- shop state
 local shop_idx = 1
@@ -280,6 +283,7 @@ local function newRun(fromTime)
   combo = 0
   score = 0
   victory_shown = false
+  last_silhouette_bit = nil
   -- per-run variation: shuffle the random seed and the mosaic hue offset so
   -- every run looks and plays slightly different even though it's the same
   -- song / same beat events.
@@ -795,28 +799,36 @@ local function update_play(dt)
 
     detectCloseCall(dt)
 
-    -- Silhouette edge probe. The probe is sized in VIDEO-space pixels so
-    -- it's independent of the on-screen scale (the spritesheet shrunk to
-    -- 240x180 made the previous screen-px probe sub-cell). The collision
-    -- mask is 80x60 over a 480x360 video, so 1 cell = 6 video px. A
-    -- video-radius of 9 px gives a 18x18 video probe = 3x3 collision cells,
-    -- which reliably catches any bright/dark transition the player straddles.
+    -- Silhouette edge hazard. Two detections combined:
+    --   STATIC EDGE -- center bit differs from any of 4 cardinal neighbors
+    --     at +/-6 video px (one collision cell). Tight probe ~ player size.
+    --   MOVING EDGE -- bit at the player's current centre differs from the
+    --     bit at that same point on the previous frame. The silhouette has
+    --     swept over the player as the video morphs.
     local on_edge = false
     if sil_scale > 0 then
-      local PROBE_VPX = 9
       local cx_v = (player.x - sil_dx) / sil_scale
       local cy_v = (player.y - sil_dy) / sil_scale
-      local vx0 = cx_v - PROBE_VPX
-      local vy0 = cy_v - PROBE_VPX
-      local vx1 = cx_v + PROBE_VPX
-      local vy1 = cy_v + PROBE_VPX
-      if vx1 >= 0 and vy1 >= 0 and vx0 <= 480 and vy0 <= 360 then
-        if vx0 < 0 then vx0 = 0 end
-        if vy0 < 0 then vy0 = 0 end
-        if vx1 > 480 then vx1 = 480 end
-        if vy1 > 360 then vy1 = 360 end
+      if cx_v >= 0 and cy_v >= 0 and cx_v < 480 and cy_v < 360 then
         local frame = Video.frameAt(audio_t)
-        on_edge = Collision.boxStraddles(frame, vx0, vy0, vx1, vy1)
+        local center_now = Collision.sampleVideoSpace(frame, cx_v, cy_v)
+        -- static edge probe
+        local function nb(dx, dy)
+          local sx, sy = cx_v + dx, cy_v + dy
+          if sx < 0 or sy < 0 or sx >= 480 or sy >= 360 then return center_now end
+          return Collision.sampleVideoSpace(frame, sx, sy)
+        end
+        if nb(-6, 0) ~= center_now or nb(6, 0) ~= center_now
+           or nb(0, -6) ~= center_now or nb(0, 6) ~= center_now then
+          on_edge = true
+        end
+        -- moving edge: silhouette swept across player position since last frame
+        if last_silhouette_bit ~= nil and last_silhouette_bit ~= center_now then
+          on_edge = true
+        end
+        last_silhouette_bit = center_now
+      else
+        last_silhouette_bit = nil
       end
     end
 
