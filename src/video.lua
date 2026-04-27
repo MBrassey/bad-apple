@@ -132,35 +132,38 @@ function M.frameAt(t)
 end
 
 -- Fit transform of source (FRAME_W x FRAME_H) inside (w,h) target.
+-- (Kept for callers that still want letterboxed fit -- the gameplay path
+-- now uses fillRect for a full-canvas stretch.)
 function M.fitRect(w, h)
   local scale = math.min(w / FRAME_W, h / FRAME_H)
-  local dw = FRAME_W * scale
-  local dh = FRAME_H * scale
-  return scale, dw, dh
+  return scale, FRAME_W * scale, FRAME_H * scale
+end
+
+function M.fillRect(w, h)
+  return w / FRAME_W, h / FRAME_H
 end
 
 -- Draw the silhouette frame for time `t` filling target rect (x,y,w,h).
+-- Stretches non-uniformly so the silhouette spans the full target rect
+-- (no letterbox). Returns dx, dy, dw, dh, scale_x, scale_y so the caller
+-- can map screen <-> video coords with separate horizontal / vertical
+-- scale factors.
 function M.draw(t, x, y, w, h, r, g, b, a)
   local f = M.frameAt(t)
   local sheetIdx = math.floor(f / FRAMES_PER_SHEET) + 1
   local localIdx = f % FRAMES_PER_SHEET
 
-  -- ensure the active sheet is loaded; this can stall ~10-20 ms on the
-  -- frame we cross a sheet boundary -- prefetch in M.update mitigates that.
   local img = ensureSheet(sheetIdx)
   if not img then return end
   local q = quads[localIdx]
   if not q then return end
 
-  local scale = math.min(w / FRAME_W, h / FRAME_H)
-  local dw = FRAME_W * scale
-  local dh = FRAME_H * scale
-  local dx = x + (w - dw) * 0.5
-  local dy = y + (h - dh) * 0.5
+  local sx = w / FRAME_W
+  local sy = h / FRAME_H
 
   love.graphics.setColor(r or 1, g or 1, b or 1, a or 1)
-  love.graphics.draw(img, q, dx, dy, 0, scale, scale)
-  return dx, dy, dw, dh, scale
+  love.graphics.draw(img, q, x, y, 0, sx, sy)
+  return x, y, w, h, sx, sy
 end
 
 -- Call from love.update. Looks ahead `lookahead` seconds and ensures the next

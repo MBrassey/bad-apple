@@ -147,11 +147,27 @@ local sil_glow = 0
 local kick_pulse = 0
 local elapsed_play = 0
 local LOOP = false
-local sil_dx, sil_dy, sil_dw, sil_dh, sil_scale = 0,0,0,0,1
+local sil_dx, sil_dy, sil_dw, sil_dh = 0, 0, 0, 0
+local sil_scale_x, sil_scale_y = 1, 1
 local victory_shown = false
 
 -- SFX cache (synthesized at boot)
-local snd_dash, snd_hit, snd_tick, snd_revive, snd_death
+local snd_dash, snd_hit, snd_tick, snd_revive, snd_death, snd_lobby
+
+local function setLobbyMusic(on)
+  if not snd_lobby then return end
+  if on then
+    if not snd_lobby:isPlaying() then snd_lobby:play() end
+  else
+    if snd_lobby:isPlaying() then snd_lobby:stop() end
+  end
+end
+
+-- True for any state where the lobby beat should be running.
+local function isLobbyState()
+  return state == "menu" or state == "lobby"
+      or state == "character" or state == "shop"
+end
 
 -- hit-stop / dt scaling for impact frames
 local hit_stop_t = 0
@@ -408,6 +424,7 @@ local function loadStep()
     snd_tick   = SFX.makeTick()
     snd_revive = SFX.makeRevive()
     snd_death  = SFX.makeDeath()
+    snd_lobby  = SFX.makeLobbyLoop()
     boot_progress = 1.0; _boot.phase = 7; return true
   end
   return true
@@ -802,10 +819,11 @@ local function update_play(dt)
     -- This is fair: the empty backdrop is genuinely safe and the
     -- silhouette is a clearly-visible obstacle to dodge.
     local on_edge = false
-    if sil_scale > 0 then
-      -- video-space coords are 0..240 / 0..180 (matches src/video.lua sheets)
-      local cx_v = (player.x - sil_dx) / sil_scale
-      local cy_v = (player.y - sil_dy) / sil_scale
+    if sil_scale_x > 0 and sil_scale_y > 0 then
+      -- video-space coords are 0..240 / 0..180; with full-canvas stretch
+      -- the horizontal and vertical scales differ
+      local cx_v = (player.x - sil_dx) / sil_scale_x
+      local cy_v = (player.y - sil_dy) / sil_scale_y
       if cx_v >= 0 and cy_v >= 0 and cx_v < 240 and cy_v < 180 then
         local frame = Video.frameAt(audio_t)
         local function sample(dx, dy)
@@ -813,7 +831,6 @@ local function update_play(dt)
           if sx < 0 or sy < 0 or sx >= 240 or sy >= 180 then return false end
           return Collision.sampleVideoSpace(frame, sx, sy)
         end
-        -- 5-tap probe inside the player's visible footprint (~3 vpx ≈ 1 cell)
         if sample(0, 0) or sample(-3, 0) or sample(3, 0)
            or sample(0, -3) or sample(0, 3) then
           on_edge = true
@@ -922,7 +939,7 @@ function love.update(dt)
 
   if     state == "loading"   then update_loading(dt)
   elseif state == "menu"      then update_menu(dt)
-  elseif state == "paused"    then return
+  elseif state == "paused"    then setLobbyMusic(false); return
   elseif state == "shop"      then update_shop()
   elseif state == "character" then update_character(dt)
   elseif state == "lobby"     then update_lobby(dt)
@@ -931,6 +948,8 @@ function love.update(dt)
   elseif state == "play"      then update_play(dt)
   elseif state == "win"       then update_win(dt)
   end
+  -- music routing: lobby beat plays in chrome states, stops during play
+  setLobbyMusic(isLobbyState())
 end
 
 -- ─── draw helpers ────────────────────────────────────────────────────
@@ -946,15 +965,13 @@ local function drawBackdrop()
 end
 
 local function drawSilhouetteWithGlow(t)
-  local _, dw, dh = Video.fitRect(DESIGN_W, DESIGN_H)
-  -- send shader uniforms
+  -- silhouette stretches to fill the entire 1920x1080 canvas
   Mosaic.send(love.timer.getTime(), 0.4 + 0.8 * sil_glow,
-              Director.intensity(audio_t or 0), dw, dh)
+              Director.intensity(audio_t or 0), DESIGN_W, DESIGN_H)
   local prev = love.graphics.getShader()
   love.graphics.setShader(Mosaic.shader())
-  -- the shader maps the source mask -> mosaic palette; we draw at full size
-  -- using a near-white tint so the shader receives unmodified luminance
-  sil_dx, sil_dy, sil_dw, sil_dh, sil_scale = Video.draw(t, 0, 0, DESIGN_W, DESIGN_H, 1, 1, 1, 1)
+  sil_dx, sil_dy, sil_dw, sil_dh, sil_scale_x, sil_scale_y =
+    Video.draw(t, 0, 0, DESIGN_W, DESIGN_H, 1, 1, 1, 1)
   love.graphics.setShader(prev)
 end
 
@@ -1054,12 +1071,16 @@ local function drawEdgeTints()
 end
 
 local function drawMenu()
-  love.graphics.clear(0.020, 0.012, 0.040, 1)
-  -- preview the silhouette midway, very faintly behind everything
+  -- deep dark base + subtle vertical gradient for depth
+  love.graphics.clear(0.012, 0.012, 0.020, 1)
+  for i = 0, 16 do
+    love.graphics.setColor(0.04, 0.05, 0.09, 0.05 - i * 0.003)
+    love.graphics.rectangle("fill", 0, i * (DESIGN_H / 16), DESIGN_W, DESIGN_H / 16 + 2)
+  end
+  -- silhouette preview at low opacity, full-canvas stretch
   local previewT = (love.timer.getTime() * 0.4) % math.max(1, Video.duration())
-  Video.draw(previewT, DESIGN_W*0.5 - 720, DESIGN_H*0.5 - 540, 1440, 1080,
-             accent[1] * 0.18, accent[2] * 0.14, accent[3] * 0.22, 0.45)
-  love.graphics.setColor(0, 0, 0, 0.55)
+  Video.draw(previewT, 0, 0, DESIGN_W, DESIGN_H, 0.18, 0.20, 0.28, 0.30)
+  love.graphics.setColor(0.012, 0.012, 0.020, 0.55)
   love.graphics.rectangle("fill", 0, 0, DESIGN_W, DESIGN_H)
   love.graphics.setFont(font_big)
   love.graphics.setColor(1, 0.85, 0.95, 1)

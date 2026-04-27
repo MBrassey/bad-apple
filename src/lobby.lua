@@ -100,22 +100,30 @@ end
 -- HUD
 ------------------------------------------------------------------
 
--- Panel chrome -- stable neutral, never pulses. The HUD frame stays the
--- same colour while the player walks around so the eye can rest. Accent
--- is reserved for the player and the gate, which DO change.
-local CHROME      = { 0.55, 0.62, 0.78, 1 }
-local CHROME_RIM  = { 0.55, 0.62, 0.78, 0.45 }
-local PANEL_FILL  = { 0.030, 0.032, 0.045, 0.94 }
+-- Panel chrome -- subtle, neutral, professional. Glassy fills, hairline rims,
+-- accent only on the corner ticks (kept stable so the eye can rest).
+local CHROME_TICK  = { 0.65, 0.78, 0.95 }
+local CHROME_RIM_A = 0.32
+local PANEL_TOP    = { 0.040, 0.050, 0.075, 0.92 }
+local PANEL_BOT    = { 0.018, 0.020, 0.034, 0.92 }
 
 local function panelFrame(x, y, w, h)
-  love.graphics.setColor(PANEL_FILL[1], PANEL_FILL[2], PANEL_FILL[3], PANEL_FILL[4])
-  love.graphics.rectangle("fill", x, y, w, h, 12, 12)
-  love.graphics.setColor(CHROME_RIM[1], CHROME_RIM[2], CHROME_RIM[3], CHROME_RIM[4])
+  -- subtle vertical gradient fill via two stacked rects with alpha bands
+  love.graphics.setColor(PANEL_TOP[1], PANEL_TOP[2], PANEL_TOP[3], PANEL_TOP[4])
+  love.graphics.rectangle("fill", x, y, w, h * 0.55, 10, 10)
+  love.graphics.setColor(PANEL_BOT[1], PANEL_BOT[2], PANEL_BOT[3], PANEL_BOT[4])
+  love.graphics.rectangle("fill", x, y + h * 0.45, w, h * 0.55, 10, 10)
+  -- soft 1-pixel inner highlight along the top edge for a glassy lift
+  love.graphics.setColor(1, 1, 1, 0.06)
+  love.graphics.line(x + 12, y + 1, x + w - 12, y + 1)
+  -- hairline rim
+  love.graphics.setColor(CHROME_TICK[1], CHROME_TICK[2], CHROME_TICK[3], CHROME_RIM_A)
+  love.graphics.setLineWidth(1)
+  love.graphics.rectangle("line", x + 0.5, y + 0.5, w - 1, h - 1, 10, 10)
+  -- accent corner ticks (slightly brighter, very small)
+  love.graphics.setColor(CHROME_TICK[1], CHROME_TICK[2], CHROME_TICK[3], 0.85)
   love.graphics.setLineWidth(2)
-  love.graphics.rectangle("line", x, y, w, h, 12, 12)
-  love.graphics.setColor(CHROME[1], CHROME[2], CHROME[3], 0.85)
-  love.graphics.setLineWidth(2)
-  local t = 14
+  local t = 18
   love.graphics.line(x, y + t, x + t, y); love.graphics.line(x + w - t, y, x + w, y + t)
   love.graphics.line(x, y + h - t, x + t, y + h); love.graphics.line(x + w - t, y + h, x + w, y + h - t)
   love.graphics.setLineWidth(1)
