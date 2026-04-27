@@ -10,9 +10,9 @@ M.max_scroll = 0
 M.bounds = { x = 0, y = 0, w = 0, h = 0 }
 M.hitrects = {}     -- { x, y, w, h, kind, idx, locked }
 
-local TILE      = 70
-local TILE_GAP  = 10
-local SECTION_H = 56
+local TILE      = 60
+local TILE_GAP  = 8
+local SECTION_H = 48
 
 local function drawSwatchTile(x, y, sz, rgb, sel, locked)
   if sel and not locked then
@@ -99,18 +99,16 @@ function M.draw(px, py, pw, ph, ctx, accent, fonts)
   love.graphics.setScissor(px, py, pw, ph)
 
   local function section(title, kind, items, sel_idx, isUnlocked)
-    -- header
-    love.graphics.setFont(fonts.med)
+    -- header (compact -- font_small, soft caps, accent dot)
+    love.graphics.setFont(fonts.small)
     love.graphics.setColor(accent[1], accent[2], accent[3], 1)
     love.graphics.print(title, ix, iy - M.scroll_y)
-    iy = iy + 36
-    -- selected name caption
+    -- selected name to the right of the header so it never overlaps
     if items[sel_idx] then
-      love.graphics.setFont(fonts.small)
-      love.graphics.setColor(1, 1, 1, 0.65)
-      love.graphics.print(items[sel_idx].name, ix, iy - M.scroll_y)
-      iy = iy + 22
+      love.graphics.setColor(1, 1, 1, 0.60)
+      love.graphics.printf(items[sel_idx].name, ix, iy - M.scroll_y, iw, "right")
     end
+    iy = iy + 22
     -- grid
     for i, item in ipairs(items) do
       local col = (i - 1) % cols
@@ -127,7 +125,7 @@ function M.draw(px, py, pw, ph, ctx, accent, fonts)
       recordHit(kind, i, tx, ty, TILE, TILE, locked)
     end
     local rows = math.ceil(#items / cols)
-    iy = iy + rows * (TILE + TILE_GAP) + 28
+    iy = iy + rows * (TILE + TILE_GAP) + 18
   end
 
   section("COLOUR",  "color", ctx.palette, ctx.color_idx, ctx.paletteUnlocked)

@@ -1123,20 +1123,6 @@ local function drawMenu()
   love.graphics.setColor(1, 1, 1, 0.65)
   love.graphics.printf("dodge the shadow.  consume the apple.",
                        0, 410, DESIGN_W, "center")
-  -- Bad Apple banner in the top-right corner: a small frame from the
-  -- silhouette video (the figure holding the apple in the early intro).
-  local bx, by, bw, bh = DESIGN_W - 280, 30, 240, 200
-  love.graphics.setColor(0.04, 0.05, 0.08, 0.90)
-  love.graphics.rectangle("fill", bx, by, bw, bh, 12, 12)
-  Video.draw(1.0, bx + 4, by + 4, bw - 8, bh - 8, accent[1], accent[2], accent[3], 0.95)
-  love.graphics.setColor(1, 1, 1, 0.55)
-  love.graphics.setLineWidth(2)
-  love.graphics.rectangle("line", bx + 0.5, by + 0.5, bw - 1, bh - 1, 12, 12)
-  love.graphics.setLineWidth(1)
-  love.graphics.setFont(font_small)
-  love.graphics.setColor(1, 1, 1, 0.85)
-  love.graphics.print("BAD APPLE", bx + 16, by + bh - 30)
-
   -- single START call to action -- pulsing illuminated button
   local bw, bh = 360, 100
   local bx = DESIGN_W * 0.5 - bw * 0.5

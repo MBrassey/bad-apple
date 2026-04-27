@@ -101,78 +101,103 @@ function M.makeDeath()
   return src
 end
 
--- Cyber lobby beat -- a short procedurally-generated loop that plays in the
--- menu / lobby / character / shop states. Made to be neutral background music
--- so it doesn't compete with the Bad Apple track during gameplay.
+-- Lobby ambient pad. Slow synthwave-ish loop tuned for the menu / lobby --
+-- chord pad in i-VI-III-VII (Am, F, C, G), a gentle sub-bass following the
+-- root, soft kick on 1, brushy hi-hat ride, and a slow arpeggio. Designed
+-- to sit *underneath* the player's attention rather than punch through, so
+-- the wardrobe / lobby chrome feels like a vibe instead of a gym.
 function M.makeLobbyLoop()
-  local bpm = 124
-  local beat_s = 60 / bpm                 -- ~0.484 s
-  local bars = 2
-  local total = bars * 4 * beat_s         -- 8 beats, ~3.87 s
+  local bpm = 88                          -- slower, more atmospheric
+  local beat_s = 60 / bpm                 -- ~0.682 s
+  local bars = 4
+  local total = bars * 4 * beat_s         -- 16 beats, ~10.9 s
   local n = math.floor(total * RATE)
   local sd = love.sound.newSoundData(n, RATE, 16, 1)
 
-  -- 1-pole high-pass state for the hi-hat noise burst
-  local hp_a = 0.94
-  local hp_prev_in, hp_prev_out = 0, 0
+  -- chord progression: Am -- F -- C -- G, one per bar.
+  -- frequencies for chord tones (Hz) -- root, third, fifth, seventh
+  local CHORDS = {
+    { root = 110.00, tones = { 110.00, 130.81, 164.81, 196.00 } },  -- Am7
+    { root =  87.31, tones = {  87.31, 110.00, 130.81, 164.81 } },  -- Fmaj7
+    { root =  65.41, tones = { 130.81, 164.81, 196.00, 246.94 } },  -- C
+    { root =  98.00, tones = {  98.00, 123.47, 146.83, 196.00 } },  -- G
+  }
 
-  -- arp note progression (each beat picks one) -- minor 7th-ish
-  local notes = { 220.0, 261.6, 329.6, 261.6, 220.0, 196.0, 261.6, 293.7 }
+  -- arpeggio pattern over the bar (8 sixteenths of triplets)
+  local ARP_INDEX = { 1, 2, 3, 4, 3, 2, 4, 3 }
+  -- 1-pole high-pass state for the hat noise
+  local hp_a = 0.93
+  local hp_prev_in, hp_prev_out = 0, 0
 
   for i = 0, n - 1 do
     local t = i / RATE
-    local beat_pos = t / beat_s             -- absolute beat count
-    local frac = beat_pos - math.floor(beat_pos)
-    local beat_idx = math.floor(beat_pos) % 8
+    local global_beat = t / beat_s
+    local bar_idx = math.floor(global_beat / 4) % #CHORDS
+    local chord = CHORDS[bar_idx + 1]
+    local beat_in_bar = global_beat - math.floor(global_beat / 4) * 4
+    local beat_idx = math.floor(beat_in_bar)
+    local frac = beat_in_bar - beat_idx
     local s = 0
 
-    -- kick on every quarter (4-on-the-floor)
-    if frac < 0.12 then
-      local k = frac / 0.12
-      local env = math.exp(-9 * k)
-      s = s + math.sin(2 * math.pi * (130 - 80 * k) * t) * env * 0.55
-      -- a soft thump tail
-      s = s + math.sin(2 * math.pi * (60) * t) * env * env * 0.18
+    -- chord pad: sustained sines on all four chord tones, slow vibrato
+    -- via a low-rate amplitude wobble so the pad breathes
+    local pad_env = 0.5 + 0.5 * math.sin(t * 0.6)        -- 0..1 slow swell
+    local pad_amp = (0.10 + 0.05 * pad_env)
+    for _, f in ipairs(chord.tones) do
+      s = s + math.sin(2 * math.pi * f * t) * pad_amp
+      -- octave-up shimmer at lower amplitude
+      s = s + math.sin(2 * math.pi * f * 2 * t) * pad_amp * 0.18
     end
 
-    -- snap on every other beat (counts 2 and 4)
-    if (beat_idx % 2) == 1 and frac < 0.06 then
-      local k = frac / 0.06
+    -- crossfade between chords during the last 0.5 s of each bar so it
+    -- doesn't snap. Fade-out current, fade-in next.
+    do
+      local bar_pos = (global_beat / 4) - math.floor(global_beat / 4)
+      if bar_pos > 0.875 then
+        local cf = (bar_pos - 0.875) / 0.125
+        local nxt = CHORDS[((bar_idx + 1) % #CHORDS) + 1]
+        for _, f in ipairs(nxt.tones) do
+          s = s + math.sin(2 * math.pi * f * t) * pad_amp * cf
+        end
+      end
+    end
+
+    -- soft kick on beat 1 of each bar
+    if beat_idx == 0 and frac < 0.18 then
+      local k = frac / 0.18
+      local env = math.exp(-7 * k)
+      s = s + math.sin(2 * math.pi * (95 - 55 * k) * t) * env * 0.40
+    end
+
+    -- brushy hat on every off-beat (8th notes)
+    if frac > 0.45 and frac < 0.52 then
+      local k = (frac - 0.45) / 0.07
       local env = math.exp(-22 * k)
       local x  = (love.math.random() - 0.5) * 2
       local y  = hp_a * (hp_prev_out + x - hp_prev_in)
       hp_prev_in, hp_prev_out = x, y
-      s = s + y * env * 0.28
-    else
-      -- keep filter state moving smoothly
-      local x  = (love.math.random() - 0.5) * 0.05
-      local y  = hp_a * (hp_prev_out + x - hp_prev_in)
-      hp_prev_in, hp_prev_out = x, y
+      s = s + y * env * 0.06
     end
 
-    -- hi-hat on the off-beat 8th
-    if frac > 0.50 and frac < 0.55 then
-      local k = (frac - 0.50) / 0.05
-      local env = math.exp(-32 * k)
-      s = s + (love.math.random() - 0.5) * env * 0.20
+    -- sub-bass following the chord root, half-time pulse
+    if (beat_idx % 2) == 0 and frac < 0.55 then
+      local k = frac / 0.55
+      local env = math.exp(-2.5 * k)
+      s = s + math.sin(2 * math.pi * chord.root * 0.5 * t) * env * 0.16
     end
 
-    -- bass on each beat -- tight pluck following the note progression
-    if frac < 0.40 then
-      local k = frac / 0.40
-      local env = math.exp(-4 * k)
-      local f = notes[beat_idx + 1] * 0.5      -- octave below for sub
-      s = s + math.sin(2 * math.pi * f * t) * env * 0.20
-    end
-
-    -- arp pluck on the off 16th of each beat -- adds a bit of melody
-    if frac > 0.72 and frac < 0.82 then
-      local k = (frac - 0.72) / 0.10
-      local env = math.exp(-14 * k)
-      local f = notes[beat_idx + 1]
-      local f2 = notes[((beat_idx + 2) % 8) + 1]
-      s = s + (math.sin(2 * math.pi * f * t)
-            +  math.sin(2 * math.pi * f2 * t) * 0.55) * env * 0.10
+    -- arpeggio: pluck on each 8th-note step through ARP_INDEX, picking a
+    -- chord tone. Soft sine with a quick decay envelope.
+    do
+      local step = math.floor(beat_in_bar * 2) + 1   -- 1..8
+      local step_frac = (beat_in_bar * 2) - math.floor(beat_in_bar * 2)
+      if step_frac < 0.30 then
+        local k = step_frac / 0.30
+        local env = math.exp(-9 * k)
+        local tone_idx = ARP_INDEX[((step - 1) % #ARP_INDEX) + 1]
+        local f = chord.tones[tone_idx] * 2          -- octave up for arp
+        s = s + math.sin(2 * math.pi * f * t) * env * 0.06
+      end
     end
 
     if s >  1 then s =  1 end
@@ -182,7 +207,7 @@ function M.makeLobbyLoop()
 
   local src = love.audio.newSource(sd, "static")
   src:setLooping(true)
-  src:setVolume(0.40)
+  src:setVolume(0.42)
   return src
 end
 

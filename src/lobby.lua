@@ -206,71 +206,13 @@ end
 local function drawLeftPanel(accent, fonts, ctx)
   local x, y, w, h = 20, TOP_H, SIDE_W - 40, DESIGN_H - TOP_H - BOTTOM_H
   panelFrame(x, y, w, h)
-  -- Header strip stays in place; the wardrobe grid handles section titles
+  -- All wardrobe content (sections + swatch grid + aura/trail/shape tiles)
+  -- lives in src/wardrobe.lua. The legacy inline swatch grid was removed --
+  -- it was double-drawing on top of the wardrobe tiles.
+  Wardrobe.draw(x, y, w, h - 28, ctx, accent, fonts)
   love.graphics.setFont(fonts.small)
   love.graphics.setColor(1, 1, 1, 0.45)
-  love.graphics.print("WARDROBE  /  scroll to browse", x + 18, y + h - 22)
-  -- Hand the rest of the panel to the wardrobe module (scrollable tile grid)
-  Wardrobe.draw(x, y, w, h - 20, ctx, accent, fonts)
-  love.graphics.setFont(fonts.small)
-  love.graphics.setColor(1, 1, 1, 0.55)
-  love.graphics.print("Q / E   colour", x + 22, y + 70)
-  -- colour swatch grid
-  local sz = 38
-  local gap = 10
-  local cols = 6
-  local sx = x + 22
-  local sy = y + 110
-  for i, p in ipairs(ctx.palette) do
-    local c = (i - 1) % cols
-    local r = math.floor((i - 1) / cols)
-    local px = sx + c * (sz + gap)
-    local py = sy + r * (sz + gap)
-    drawSwatch(px, py, sz, p.rgb, i == ctx.color_idx, not ctx.paletteUnlocked(i))
-    recordHit("color", i, px, py, sz, sz, not ctx.paletteUnlocked(i))
-  end
-  if true then return end       -- old list-panel logic kept dead-coded for fallback
-  local function listPanel(title, kind, items, sel_idx, isUnlocked, ay)
-    love.graphics.setFont(fonts.med)
-    love.graphics.setColor(accent[1], accent[2], accent[3], 1)
-    love.graphics.print(title, x + 22, ay)
-    for i, a in ipairs(items) do
-      local row_y = ay + 50 + (i - 1) * 32
-      local sel = (i == sel_idx)
-      local locked = not isUnlocked(i)
-      -- subtle hover/click affordance: a frame around each row
-      love.graphics.setColor(1, 1, 1, sel and 0.18 or 0.06)
-      love.graphics.rectangle("fill", x + 18, row_y - 4, w - 36, 28, 6, 6)
-      if sel then love.graphics.setColor(accent[1], accent[2], accent[3], 1)
-      elseif locked then love.graphics.setColor(1, 1, 1, 0.20)
-      else love.graphics.setColor(1, 1, 1, 0.55) end
-      love.graphics.rectangle("fill", x + 26, row_y + 5, 12, 12, 2, 2)
-      if locked then love.graphics.setColor(1, 1, 1, 0.30)
-      elseif sel then love.graphics.setColor(1, 1, 1, 1)
-      else love.graphics.setColor(1, 1, 1, 0.85) end
-      love.graphics.print(a.name, x + 50, row_y)
-      -- Locked rows show a small lock badge on the right -- never overlapping
-      -- the name text.
-      if locked then
-        local lx, ly = x + w - 38, row_y + 4
-        love.graphics.setColor(1, 1, 1, 0.55)
-        love.graphics.setLineWidth(2)
-        love.graphics.arc("line", "open", lx, ly + 4, 5, math.pi, math.pi * 2)
-        love.graphics.rectangle("fill", lx - 5, ly + 4, 10, 8, 1, 1)
-        love.graphics.setLineWidth(1)
-      end
-      recordHit(kind, i, x + 18, row_y - 4, w - 36, 28, locked)
-    end
-    return ay + 50 + #items * 32
-  end
-
-  -- AURA / TRAIL / SHAPE stacked vertically. Each shows N wins remaining
-  -- on locked entries so the unlock target is visible. Click any row to
-  -- equip; locked rows are inert.
-  local ay = sy + (math.ceil(#ctx.palette / cols)) * (sz + gap) + 24
-  ay = listPanel("AURA",   "aura",   ctx.auras,  ctx.aura_idx,  ctx.auraUnlocked,  ay) + 14
-  ay = listPanel("TRAIL",  "trail",  ctx.trails, ctx.trail_idx, ctx.trailUnlocked, ay) + 14
-  ay = listPanel("SHAPE",  "shape",  ctx.shapes, ctx.shape_idx, ctx.shapeUnlocked, ay)
+  love.graphics.printf("scroll to browse", x, y + h - 24, w, "center")
 end
 
 local function drawRightPanel(accent, fonts, ctx)
