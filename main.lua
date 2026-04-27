@@ -415,29 +415,21 @@ end
 -- ─── input ───────────────────────────────────────────────────────────
 function love.keypressed(key)
   if state == "menu" then
-    if     key == "return" or key == "space" then SFX.play(snd_tick); newRun(0)
-    elseif key == "c" and (Save.state.last_checkpoint or 0) > 5 then SFX.play(snd_tick); newRun(Save.state.last_checkpoint)
-    elseif key == "l" then SFX.play(snd_tick); LOOP = not LOOP
-    elseif key == "left"  or key == "a" then
-      SFX.play(snd_tick)
-      Save.state.player_color = ((Save.state.player_color - 2) % #PLAYER_PALETTE) + 1
-      Save.write()
-    elseif key == "right" or key == "d" then
-      SFX.play(snd_tick)
-      Save.state.player_color = (Save.state.player_color % #PLAYER_PALETTE) + 1
-      Save.write()
-    elseif key == "b" then SFX.play(snd_tick); state = "shop"; shop_idx = 1
-    elseif key == "m" then
+    -- Single button: START always routes to the lobby. Customisation,
+    -- peer presence and level entry all live in the lobby.
+    if key == "return" or key == "space" then
       SFX.play(snd_tick)
       if not Net.enabled then Net.tryJoinPublic() end
-      -- enter the cyber lobby state with a fresh player avatar
       local hp_bonus = (Save.state.upgrades and Save.state.upgrades.hp) and 1 or 0
       player = Player.new(DESIGN_W * 0.5, DESIGN_H * 0.5,
                           { x = 80, y = 100, w = DESIGN_W - 160, h = DESIGN_H - 200 },
                           hp_bonus)
       if Save.state.upgrades and Save.state.upgrades.sparkles then player.sparkle_boost = true end
-      if Save.state.upgrades and Save.state.upgrades.halo then player.halo_boost = true end
-      if Save.state.upgrades and Save.state.upgrades.dash then player.dash_cooldown_mul = 0.75 end
+      if Save.state.upgrades and Save.state.upgrades.halo     then player.halo_boost     = true end
+      if Save.state.upgrades and Save.state.upgrades.dash     then player.dash_cooldown_mul = 0.75 end
+      local aidx = Save.state.aura_id  or 1; player.aura_id  = (AURAS[aidx]  and AURAS[aidx].id)  or "default"
+      local tidx = Save.state.trail_id or 1; player.trail_id = (TRAILS[tidx] and TRAILS[tidx].id) or "sparkle"
+      local sidx = Save.state.shape_id or 1; player.shape_id = (SHAPES[sidx] and SHAPES[sidx].id) or "square"
       Lobby.enter(player)
       state = "lobby"
     elseif key == "-" or key == "kp-" then
