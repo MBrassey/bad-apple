@@ -97,14 +97,24 @@ function Bullet:draw(accent)
     local k = self.elapsed / self.fire_t
     -- accelerating telegraph pulse: faster as fire approaches
     local pulse = 0.4 + 0.6 * math.abs(math.sin(self.elapsed * (10 + 18 * k)))
-    -- guideline
-    love.graphics.setColor(cr, cg, cb, 0.22 * pulse)
-    love.graphics.setLineWidth(2 + 4 * k)
-    love.graphics.line(self.x, self.y, self.x + self.dx * self.warn_len, self.y + self.dy * self.warn_len)
-    -- expanding outline ring previewing footprint
-    love.graphics.setColor(1, 1, 1, 0.65 * pulse)
+    -- faint dotted guideline -- a hint, NOT an obstacle. Was previously
+    -- drawn as a solid pulsing line and players read it as a hot beam.
+    love.graphics.setColor(cr, cg, cb, 0.07 * pulse)
+    love.graphics.setLineWidth(1)
+    local dash_len, gap_len = 8, 12
+    local total = self.warn_len
+    local d = 0
+    while d < total do
+      local x1 = self.x + self.dx * d
+      local y1 = self.y + self.dy * d
+      local d2 = math.min(d + dash_len, total)
+      love.graphics.line(x1, y1, self.x + self.dx * d2, self.y + self.dy * d2)
+      d = d + dash_len + gap_len
+    end
+    -- expanding outline ring previewing the bullet's actual footprint
+    love.graphics.setColor(1, 1, 1, 0.75 * pulse)
     love.graphics.setLineWidth(2 + 3 * k)
-    love.graphics.circle("line", self.x, self.y, self.r * (0.35 + 0.75 * k))
+    love.graphics.circle("line", self.x, self.y, self.r * (0.35 + 0.85 * k))
     love.graphics.setLineWidth(1)
   else
     -- hot bullet: layered glow + pulsing white border + accent core + sparkle
@@ -181,17 +191,20 @@ function Beam:draw(accent)
   local e, w, f = self.elapsed, self.warn, self.fire
   if e < w then
     local k = e / w
-    local pulse = 0.4 + 0.6 * math.abs(math.sin(e * (12 + 22 * k)))
-    -- thin guideline along the path
-    love.graphics.setColor(cr, cg, cb, 0.30 * pulse)
+    -- accelerating throb: starts subtle, slams in just before fire
+    local pulse = 0.4 + 0.6 * math.abs(math.sin(e * (8 + 24 * k)))
+    -- thin coloured rail through the path
+    love.graphics.setColor(cr, cg, cb, 0.40 * pulse)
     love.graphics.setLineWidth(2 + 4 * k)
     love.graphics.line(self.ax, self.ay, self.bx, self.by)
-    -- preview capsule expanding to fire thickness
-    love.graphics.setColor(cr, cg, cb, 0.20 * pulse)
-    drawCapsule(self.ax, self.ay, self.bx, self.by, self.thick * 0.6 * k)
-    -- pulsing white edge as fire nears
-    love.graphics.setColor(1, 1, 1, 0.45 * pulse * k)
-    love.graphics.setLineWidth(2)
+    -- preview capsule expands to fire thickness as the warn elapses --
+    -- you can see the impending beam swelling into shape
+    love.graphics.setColor(cr, cg, cb, 0.30 * pulse * k)
+    drawCapsule(self.ax, self.ay, self.bx, self.by, self.thick * (0.30 + 0.65 * k))
+    -- bright white edge band that intensifies as fire nears, makes the
+    -- final fraction of a second unmistakable
+    love.graphics.setColor(1, 1, 1, 0.65 * pulse * k * k)
+    love.graphics.setLineWidth(3)
     love.graphics.line(self.ax, self.ay, self.bx, self.by)
     love.graphics.setLineWidth(1)
   elseif e < w + f then

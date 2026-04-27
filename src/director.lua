@@ -149,10 +149,10 @@ local function onSnare(t, ev, target)
     local horiz = love.math.random() < 0.6
     if horiz then
       local y = rand(180, PLAY_H - 180)
-      Obs.beam({ ax=-20, ay=y, bx=PLAY_W+20, by=y, warn=0.65, fire=0.20, thick=24 + I*4, color=pickColour() })
+      Obs.beam({ ax=-20, ay=y, bx=PLAY_W+20, by=y, warn=1.10, fire=0.32, thick=22 + I*4, color=pickColour() })
     else
       local x = rand(180, PLAY_W - 180)
-      Obs.beam({ ax=x, ay=-20, bx=x, by=PLAY_H+20, warn=0.65, fire=0.20, thick=24 + I*4, color=pickColour() })
+      Obs.beam({ ax=x, ay=-20, bx=x, by=PLAY_H+20, warn=1.10, fire=0.32, thick=22 + I*4, color=pickColour() })
     end
   end
 end

@@ -168,13 +168,10 @@ local death_pos = { x = 0, y = 0 }
 local death_audio_t = 0
 local _last_mood_t = nil
 local revives_remaining = 1
--- Silhouette EDGE hazard: contact with the silhouette boundary is an
--- instant hit, like contact with a spawned obstacle's hot zone. Inside
--- the silhouette and outside in the backdrop are both safe -- only the
--- actual outline of the shadow hurts. The outline isn't static, so we
--- also check whether the morphing boundary swept across the player's
--- position between frames.
-local last_silhouette_bit = nil    -- bit under player center on the previous frame
+-- Silhouette is the obstacle. Any pixel of the bright silhouette body that
+-- the player overlaps deals damage on contact -- it's the figure that's
+-- dangerous, not just the outline. Standing in the empty backdrop is safe.
+-- The 1.30 s post-hit i-frame window gives the player a generous escape.
 
 -- shop state
 local shop_idx = 1
@@ -283,7 +280,6 @@ local function newRun(fromTime)
   combo = 0
   score = 0
   victory_shown = false
-  last_silhouette_bit = nil
   -- per-run variation: shuffle the random seed and the mosaic hue offset so
   -- every run looks and plays slightly different even though it's the same
   -- song / same beat events.
@@ -799,36 +795,27 @@ local function update_play(dt)
 
     detectCloseCall(dt)
 
-    -- Silhouette edge hazard. Two detections combined:
-    --   STATIC EDGE -- center bit differs from any of 4 cardinal neighbors
-    --     at +/-6 video px (one collision cell). Tight probe ~ player size.
-    --   MOVING EDGE -- bit at the player's current centre differs from the
-    --     bit at that same point on the previous frame. The silhouette has
-    --     swept over the player as the video morphs.
+    -- Silhouette is the obstacle. Sample the bit at the player's centre
+    -- and at four neighbours within the player's visible body footprint
+    -- (~6 video px = ~1 collision cell). If ANY of those samples is a
+    -- silhouette pixel, the player is overlapping the figure -> hit.
+    -- This is fair: the empty backdrop is genuinely safe and the
+    -- silhouette is a clearly-visible obstacle to dodge.
     local on_edge = false
     if sil_scale > 0 then
       local cx_v = (player.x - sil_dx) / sil_scale
       local cy_v = (player.y - sil_dy) / sil_scale
       if cx_v >= 0 and cy_v >= 0 and cx_v < 480 and cy_v < 360 then
         local frame = Video.frameAt(audio_t)
-        local center_now = Collision.sampleVideoSpace(frame, cx_v, cy_v)
-        -- static edge probe
-        local function nb(dx, dy)
+        local function sample(dx, dy)
           local sx, sy = cx_v + dx, cy_v + dy
-          if sx < 0 or sy < 0 or sx >= 480 or sy >= 360 then return center_now end
+          if sx < 0 or sy < 0 or sx >= 480 or sy >= 360 then return false end
           return Collision.sampleVideoSpace(frame, sx, sy)
         end
-        if nb(-6, 0) ~= center_now or nb(6, 0) ~= center_now
-           or nb(0, -6) ~= center_now or nb(0, 6) ~= center_now then
+        if sample(0, 0)  or sample(-4, 0) or sample(4, 0)
+           or sample(0, -4) or sample(0, 4) then
           on_edge = true
         end
-        -- moving edge: silhouette swept across player position since last frame
-        if last_silhouette_bit ~= nil and last_silhouette_bit ~= center_now then
-          on_edge = true
-        end
-        last_silhouette_bit = center_now
-      else
-        last_silhouette_bit = nil
       end
     end
 
