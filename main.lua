@@ -25,23 +25,52 @@ local SFX        = require "src.sfx"
 local Mosaic     = require "src.mosaic"
 local Apples     = require "src.apples"
 local Lobby      = require "src.lobby"
+local Character  = require "src.character"
 
 local DESIGN_W, DESIGN_H = 1920, 1080
 
--- Player colour palette. Selected via left/right on the menu.
+-- Player colour palette. The first 4 are free; the others unlock as you
+-- complete the song. Save.state.completions is the gate.
 local PLAYER_PALETTE = {
-  { name = "neon pink",  rgb = { 1.00, 0.40, 0.72 } },
-  { name = "cyan",       rgb = { 0.30, 0.92, 1.00 } },
-  { name = "violet",     rgb = { 0.80, 0.55, 1.00 } },
-  { name = "amber",      rgb = { 1.00, 0.80, 0.40 } },
-  { name = "lime",       rgb = { 0.55, 1.00, 0.50 } },
-  { name = "ember",      rgb = { 1.00, 0.50, 0.35 } },
-  { name = "sky",        rgb = { 0.55, 0.85, 1.00 } },
-  { name = "ivory",      rgb = { 0.95, 0.95, 0.95 } },
+  { name = "neon pink",  rgb = { 1.00, 0.40, 0.72 }, unlock_at = 0 },
+  { name = "cyan",       rgb = { 0.30, 0.92, 1.00 }, unlock_at = 0 },
+  { name = "violet",     rgb = { 0.80, 0.55, 1.00 }, unlock_at = 0 },
+  { name = "amber",      rgb = { 1.00, 0.80, 0.40 }, unlock_at = 0 },
+  { name = "lime",       rgb = { 0.55, 1.00, 0.50 }, unlock_at = 1 },
+  { name = "ember",      rgb = { 1.00, 0.50, 0.35 }, unlock_at = 2 },
+  { name = "sky",        rgb = { 0.55, 0.85, 1.00 }, unlock_at = 3 },
+  { name = "ivory",      rgb = { 0.95, 0.95, 0.95 }, unlock_at = 4 },
+  { name = "void",       rgb = { 0.30, 0.20, 0.55 }, unlock_at = 5 },
+  { name = "blood",      rgb = { 0.90, 0.10, 0.20 }, unlock_at = 6 },
+  { name = "phantom",    rgb = { 0.60, 1.00, 0.85 }, unlock_at = 7 },
+  { name = "gold",       rgb = { 1.00, 0.85, 0.10 }, unlock_at = 8 },
 }
+
+local function paletteUnlocked(idx)
+  local p = PLAYER_PALETTE[idx]
+  if not p then return false end
+  return (Save.state.completions or 0) >= (p.unlock_at or 0)
+end
+
+-- Auras: extra visual rings you can equip from the character room. Unlock by
+-- completing the song. Equipped via Save.state.aura_id (1 = default).
+local AURAS = {
+  { id = "default", name = "Default Halo",   unlock_at = 0 },
+  { id = "ring",    name = "Spinning Ring",  unlock_at = 2 },
+  { id = "twin",    name = "Twin Echoes",    unlock_at = 4 },
+  { id = "starlit", name = "Starlit Halo",   unlock_at = 6 },
+}
+
+local function auraUnlocked(idx)
+  local a = AURAS[idx]
+  if not a then return false end
+  return (Save.state.completions or 0) >= (a.unlock_at or 0)
+end
 
 local function playerColor()
   local idx = (Save and Save.state and Save.state.player_color) or 1
+  -- guard: if the saved index is somehow locked, fall back to the first
+  if Save and Save.state and not paletteUnlocked(idx) then idx = 1 end
   local p = PLAYER_PALETTE[idx] or PLAYER_PALETTE[1]
   return p.rgb
 end
@@ -88,6 +117,17 @@ local revives_remaining = 1
 
 -- shop state
 local shop_idx = 1
+
+-- character / wardrobe preview avatar
+local preview_player = nil
+local function refreshPreviewPlayer()
+  local hp_bonus = (Save.state.upgrades and Save.state.upgrades.hp) and 1 or 0
+  preview_player = Player.new(DESIGN_W * 0.5, DESIGN_H * 0.5 + 40, nil, hp_bonus)
+  if Save.state.upgrades and Save.state.upgrades.sparkles then preview_player.sparkle_boost = true end
+  if Save.state.upgrades and Save.state.upgrades.halo then preview_player.halo_boost = true end
+  local aidx = Save.state.aura_id or 1
+  preview_player.aura_id = (AURAS[aidx] and AURAS[aidx].id) or "default"
+end
 local SHOP_ITEMS = {
   { key="sparkles",   title="Bigger Sparkle Trail", desc="Doubles trail density + life",        cost=8  },
   { key="halo",       title="Brighter Aura",        desc="Larger glow halo around the body",    cost=10 },
@@ -200,6 +240,9 @@ local function newRun(fromTime)
   if Save.state.upgrades and Save.state.upgrades.halo then
     player.halo_boost = true
   end
+  -- equipped aura cosmetic (id string fed straight into Player draw)
+  local aidx = Save.state.aura_id or 1
+  player.aura_id = (AURAS[aidx] and AURAS[aidx].id) or "default"
 end
 
 -- Begin a soft revive: keep player position, full HP, brief i-frames, song
@@ -247,6 +290,9 @@ function love.load()
   if Save.state.volume == nil then Save.state.volume = 0.85 end
   if Save.state.player_color == nil then Save.state.player_color = 1 end
   if Save.state.apples == nil then Save.state.apples = 0 end
+  if Save.state.completions == nil then Save.state.completions = 0 end
+  if Save.state.aura_id == nil then Save.state.aura_id = 1 end
+  if Save.state.last_unlock == nil then Save.state.last_unlock = nil end
   if Save.state.upgrades == nil then Save.state.upgrades = {} end
   -- ensure each upgrade key exists with a default; prevents nil-deref if a
   -- save predates a newly-added upgrade
@@ -375,6 +421,63 @@ function love.keypressed(key)
       SFX.play(snd_tick)
       state = "menu"
     end
+  elseif state == "character" then
+    if key == "left" or key == "a" then
+      SFX.play(snd_tick)
+      -- skip locked palette entries
+      local n, i = #PLAYER_PALETTE, Save.state.player_color
+      for _ = 1, n do
+        i = ((i - 2) % n) + 1
+        if paletteUnlocked(i) then break end
+      end
+      Save.state.player_color = i
+      Save.write()
+    elseif key == "right" or key == "d" then
+      SFX.play(snd_tick)
+      local n, i = #PLAYER_PALETTE, Save.state.player_color
+      for _ = 1, n do
+        i = (i % n) + 1
+        if paletteUnlocked(i) then break end
+      end
+      Save.state.player_color = i
+      Save.write()
+    elseif key == "up" or key == "w" then
+      SFX.play(snd_tick)
+      local n, i = #AURAS, Save.state.aura_id or 1
+      for _ = 1, n do
+        i = ((i - 2) % n) + 1
+        if auraUnlocked(i) then break end
+      end
+      Save.state.aura_id = i; Save.write()
+    elseif key == "down" or key == "s" then
+      SFX.play(snd_tick)
+      local n, i = #AURAS, Save.state.aura_id or 1
+      for _ = 1, n do
+        i = (i % n) + 1
+        if auraUnlocked(i) then break end
+      end
+      Save.state.aura_id = i; Save.write()
+    elseif key == "return" or key == "space" then
+      SFX.play(snd_tick); newRun(0)
+    elseif key == "b" then
+      SFX.play(snd_tick); state = "shop"; shop_idx = 1
+    elseif key == "m" then
+      SFX.play(snd_tick)
+      if not Net.enabled then Net.tryJoinPublic() end
+      local hp_bonus = (Save.state.upgrades and Save.state.upgrades.hp) and 1 or 0
+      player = Player.new(DESIGN_W * 0.5, DESIGN_H * 0.5,
+                          { x = 80, y = 100, w = DESIGN_W - 160, h = DESIGN_H - 200 },
+                          hp_bonus)
+      if Save.state.upgrades and Save.state.upgrades.sparkles then player.sparkle_boost = true end
+      if Save.state.upgrades and Save.state.upgrades.halo then player.halo_boost = true end
+      if Save.state.upgrades and Save.state.upgrades.dash then player.dash_cooldown_mul = 0.75 end
+      Lobby.enter(player)
+      state = "lobby"
+    elseif key == "l" then
+      SFX.play(snd_tick); LOOP = not LOOP
+    elseif key == "escape" then
+      SFX.play(snd_tick); state = "menu"
+    end
   elseif state == "shop" then
     if key == "up" or key == "w" then
       shop_idx = ((shop_idx - 2) % #SHOP_ITEMS) + 1; SFX.play(snd_tick)
@@ -438,81 +541,64 @@ local function detectCloseCall(dt)
   end
 end
 
-function love.update(dt)
-  if DEBUG_QUIT_AT and (love.timer.getTime() - _wall_t0) > DEBUG_QUIT_AT then
-    love.event.quit()
+-- Per-state update helpers. Splitting these out keeps love.update under the
+-- Lua 5.1 60-upvalue closure limit.
+local function update_loading(dt)
+  if loadStep() then
+    state = "menu"
+    if DEBUG_AUTORUN then newRun(tonumber(DEBUG_AUTORUN) or 0) end
   end
-  -- hit-stop: scale dt to zero for a few frames after impact, so the hit
-  -- "lands" before motion resumes
-  if hit_stop_t > 0 then
-    hit_stop_t = math.max(0, hit_stop_t - love.timer.getDelta())
-    dt = dt * 0.0
+end
+
+local function update_menu(dt)
+  audio_t = audio_t + dt * 0.30
+  bg_pulse = math.max(0, bg_pulse - dt * 1.5)
+  sil_glow = 0.35
+end
+
+local function update_shop()
+  if source and source:isPlaying() then source:pause() end
+end
+
+local function update_character(dt)
+  if preview_player then preview_player:update(dt) end
+  Character.update(dt)
+end
+
+local function update_lobby(dt)
+  Lobby.update(dt)
+  Net.broadcast(player, dt, playerColor(), Save.state.upgrades)
+  if not _last_mood_t or (love.timer.getTime() - _last_mood_t) > 0.5 then
+    fxMood(colorHex(accent[1], accent[2], accent[3]), 0.25)
+    _last_mood_t = love.timer.getTime()
   end
-  -- edge tints decay
-  edge_tint_r = math.max(0, edge_tint_r - love.timer.getDelta() * 2.5)
-  edge_tint_c = math.max(0, edge_tint_c - love.timer.getDelta() * 2.5)
+end
 
-  Net.poll()
-  Net.update(dt)
-
-  if state == "loading" then
-    if loadStep() then
-      state = "menu"
-      if DEBUG_AUTORUN then newRun(tonumber(DEBUG_AUTORUN) or 0) end
-    end
-    return
+local function update_dying(dt)
+  dying_t = dying_t + dt
+  bg_pulse = math.max(0, bg_pulse - dt * 0.6)
+  shake_t = math.max(0, shake_t - dt)
+  if player then player:update(dt) end
+  if dying_t > 1.6 then
+    state = "reviving"; revive_t = 0
+    fxShatter(0.7, 600)
   end
+end
 
-  if state == "menu" then
-    audio_t = audio_t + dt * 0.30
-    bg_pulse = math.max(0, bg_pulse - dt * 1.5)
-    sil_glow = 0.35
-    return
-  end
+local function update_reviving(dt)
+  revive_t = revive_t + dt
+  if revive_t > 1.4 then revive() end
+end
 
-  if state == "paused" then
-    return
-  end
+local function update_win(dt)
+  if source and source:isPlaying() then audio_t = audioTime() end
+  bg_pulse = math.max(0, bg_pulse - dt * 1.5)
+  kick_pulse = math.max(0, kick_pulse - dt * 4)
+  shake_t = math.max(0, shake_t - dt)
+  flash_t = math.max(0, flash_t - dt)
+end
 
-  -- Shop pauses the world: no beats fire, no obstacles update, no apples
-  -- spawn, audio source is paused so the song doesn't drift while you shop.
-  if state == "shop" then
-    if source and source:isPlaying() then source:pause() end
-    return
-  end
-
-  if state == "lobby" then
-    Lobby.update(dt)
-    Net.broadcast(player, dt, playerColor(), Save.state.upgrades)
-    -- mood drift in the lobby too, so portal chrome reacts
-    if not _last_mood_t or (love.timer.getTime() - _last_mood_t) > 0.5 then
-      fxMood(colorHex(accent[1], accent[2], accent[3]), 0.25)
-      _last_mood_t = love.timer.getTime()
-    end
-    return
-  end
-
-  if state == "dying" then
-    dying_t = dying_t + dt
-    bg_pulse = math.max(0, bg_pulse - dt * 0.6)
-    shake_t = math.max(0, shake_t - dt)
-    if player then player:update(dt) end           -- shards keep flying
-    if dying_t > 1.6 then
-      state = "reviving"; revive_t = 0
-      fxShatter(0.7, 600)
-    end
-    return
-  end
-
-  if state == "reviving" then
-    revive_t = revive_t + dt
-    if revive_t > 1.4 then
-      revive()
-    end
-    return
-  end
-
-  if state == "play" then
+local function update_play(dt)
     audio_t = audioTime()
     elapsed_play = elapsed_play + dt
 
@@ -523,11 +609,24 @@ function love.update(dt)
       Save.state.completed = true
       if not victory_shown then
         Save.state.best_time = math.max(Save.state.best_time or 0, audio_t)
-        Save.write()
         ach("apple_complete")
         if player.hits == 0 then ach("untouched") end
         if player.dashes == 0 then ach("pacifist") end
         victory_shown = true
+        -- progression: bump completions and surface any new unlock so the
+        -- win screen can announce it
+        Save.state.completions = (Save.state.completions or 0) + 1
+        local newly
+        for _, p in ipairs(PLAYER_PALETTE) do
+          if p.unlock_at == Save.state.completions then newly = "colour: " .. p.name; break end
+        end
+        if not newly then
+          for _, a in ipairs(AURAS) do
+            if a.unlock_at == Save.state.completions then newly = "aura: " .. a.name; break end
+          end
+        end
+        Save.state.last_unlock = newly
+        Save.write()
         fxFlash("#ffffff", 800)
         fxShake(1.0, 800)
       end
@@ -635,12 +734,31 @@ function love.update(dt)
     end
 
     checkAchievements()
-  elseif state == "win" then
-    if source and source:isPlaying() then audio_t = audioTime() end
-    bg_pulse = math.max(0, bg_pulse - dt * 1.5)
-    kick_pulse = math.max(0, kick_pulse - dt * 4)
-    shake_t = math.max(0, shake_t - dt)
-    flash_t = math.max(0, flash_t - dt)
+end
+
+function love.update(dt)
+  if DEBUG_QUIT_AT and (love.timer.getTime() - _wall_t0) > DEBUG_QUIT_AT then
+    love.event.quit()
+  end
+  if hit_stop_t > 0 then
+    hit_stop_t = math.max(0, hit_stop_t - love.timer.getDelta())
+    dt = 0
+  end
+  edge_tint_r = math.max(0, edge_tint_r - love.timer.getDelta() * 2.5)
+  edge_tint_c = math.max(0, edge_tint_c - love.timer.getDelta() * 2.5)
+
+  Net.poll(); Net.update(dt)
+
+  if     state == "loading"   then update_loading(dt)
+  elseif state == "menu"      then update_menu(dt)
+  elseif state == "paused"    then return
+  elseif state == "shop"      then update_shop()
+  elseif state == "character" then update_character(dt)
+  elseif state == "lobby"     then update_lobby(dt)
+  elseif state == "dying"     then update_dying(dt)
+  elseif state == "reviving"  then update_reviving(dt)
+  elseif state == "play"      then update_play(dt)
+  elseif state == "win"       then update_win(dt)
   end
 end
 
@@ -792,57 +910,19 @@ local function drawMenu()
   love.graphics.setFont(font_small)
   love.graphics.setColor(1,1,1,0.85)
   local lines = {
-    "ENTER  / SPACE   start from beginning",
+    "ENTER  / SPACE   enter your character room",
     ((Save.state.last_checkpoint or 0) > 5)
       and string.format("C   continue from %d:%02d", math.floor(Save.state.last_checkpoint/60), Save.state.last_checkpoint%60)
       or  "(checkpoints save every 12s during play)",
-    "<- / ->   choose your colour",
-    string.format("L   replay-on-win  [%s]", LOOP and "ON" or "OFF"),
-    string.format("M   cyber lobby   [%s]", Net.enabled and "ON" or "OFF"),
-    string.format("- / +   volume  [%d%%]", math.floor((Save.state.volume or 0.85) * 100)),
     "B   apple shop",
+    string.format("M   cyber lobby   [%s]", Net.enabled and "ON" or "OFF"),
+    string.format("L   replay-on-win  [%s]", LOOP and "ON" or "OFF"),
+    string.format("- / +   volume  [%d%%]", math.floor((Save.state.volume or 0.85) * 100)),
     "ESC  quit",
   }
   for i, line in ipairs(lines) do
-    love.graphics.printf(line, 0, 530 + (i-1) * 30, DESIGN_W, "center")
+    love.graphics.printf(line, 0, 540 + (i-1) * 32, DESIGN_W, "center")
   end
-
-  -- colour swatches
-  local sw_n = #PLAYER_PALETTE
-  local sw_size = 44
-  local sw_gap  = 14
-  local total_w = sw_n * sw_size + (sw_n - 1) * sw_gap
-  local sx0 = (DESIGN_W - total_w) * 0.5
-  local sy  = 470
-  for i, p in ipairs(PLAYER_PALETTE) do
-    local x = sx0 + (i - 1) * (sw_size + sw_gap)
-    local sel = (i == Save.state.player_color)
-    -- glow halo on selected
-    if sel then
-      for g = 5, 1, -1 do
-        love.graphics.setColor(p.rgb[1], p.rgb[2], p.rgb[3], 0.10)
-        local s = sw_size + g * 8
-        love.graphics.rectangle("fill", x + sw_size*0.5 - s*0.5, sy + sw_size*0.5 - s*0.5,
-                                s, s, s*0.30, s*0.30)
-      end
-    end
-    -- white border (thicker if selected)
-    love.graphics.setColor(1, 1, 1, sel and 1.0 or 0.55)
-    love.graphics.rectangle("fill", x - 2, sy - 2, sw_size + 4, sw_size + 4, 8, 8)
-    -- swatch fill
-    love.graphics.setColor(p.rgb[1], p.rgb[2], p.rgb[3], 1.0)
-    love.graphics.rectangle("fill", x, sy, sw_size, sw_size, 6, 6)
-    -- inner highlight on selected
-    if sel then
-      love.graphics.setColor(1, 1, 1, 0.55)
-      love.graphics.rectangle("fill", x + 4, sy + 4, sw_size - 8, sw_size - 8, 4, 4)
-    end
-  end
-  -- selected name caption
-  love.graphics.setFont(font_small)
-  love.graphics.setColor(1, 1, 1, 0.8)
-  love.graphics.printf(PLAYER_PALETTE[Save.state.player_color or 1].name,
-                       0, sy + sw_size + 8, DESIGN_W, "center")
   if Save.state.runs and Save.state.runs > 0 then
     love.graphics.setColor(1,1,1,0.55)
     love.graphics.printf(
@@ -987,9 +1067,14 @@ local function drawWin()
     0, 380, DESIGN_W, "center")
   love.graphics.setFont(font_small)
   love.graphics.setColor(1,1,1,0.85)
-  love.graphics.printf(string.format("you have eaten  %d  apples in total",
-                       Save.state.apples or 0),
+  love.graphics.printf(string.format("you have eaten  %d  apples in total   |   completions  %d",
+                       Save.state.apples or 0, Save.state.completions or 0),
     0, 460, DESIGN_W, "center")
+  if Save.state.last_unlock then
+    love.graphics.setColor(accent[1], accent[2], accent[3], 1)
+    love.graphics.printf("UNLOCKED   " .. Save.state.last_unlock,
+      0, 420, DESIGN_W, "center")
+  end
   love.graphics.printf("ENTER  " .. (LOOP and "play again" or "back to menu") .. "     B  apple shop",
     0, 510, DESIGN_W, "center")
   love.graphics.printf(string.format("L  replay-on-win  [%s]", LOOP and "ON" or "OFF"),
@@ -1020,6 +1105,27 @@ function love.draw()
   drawBackdrop()
   if state == "menu" then
     drawMenu()
+  elseif state == "character" then
+    if not preview_player then refreshPreviewPlayer() end
+    local handle = (Net.identity and Net.identity.handle) or "guest"
+    if Net.identity and not Net.identity.signedIn then handle = "guest" end
+    local stats = {
+      apples    = Save.state.apples,
+      runs      = Save.state.runs,
+      deaths    = Save.state.deaths,
+      hits      = Save.state.hits_taken,
+      completed = Save.state.completed,
+      best_time = Save.state.best_time,
+    }
+    stats.completions = Save.state.completions
+    Character.draw(PLAYER_PALETTE, Save.state.player_color or 1,
+                   Save.state.upgrades or {}, stats,
+                   preview_player, handle,
+                   { huge = font_huge, big = font_big, med = font_med,
+                     small = font_small, hud = font_hud },
+                   paletteUnlocked,
+                   AURAS, Save.state.aura_id or 1,
+                   auraUnlocked)
   elseif state == "lobby" then
     local handle = (Net.identity and Net.identity.handle) or "you"
     if Net.identity and not Net.identity.signedIn then handle = "guest" end

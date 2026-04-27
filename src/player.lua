@@ -404,6 +404,41 @@ function M:draw(accent)
     love.graphics.rectangle("fill", self.x - s*0.5, self.y - s*0.5, s, s, s*0.28, s*0.28)
   end
 
+  -- 3b) equipped aura cosmetic (unlocked via completions)
+  if self.aura_id == "ring" then
+    local rt = love.timer.getTime()
+    love.graphics.setColor(cr, cg, cb, 0.85 * blink)
+    love.graphics.setLineWidth(3)
+    love.graphics.circle("line", self.x, self.y, BODY_SIZE * 0.95 + math.sin(rt * 4) * 4)
+    -- a few dot satellites
+    for i = 0, 3 do
+      local a = rt * 1.4 + i * math.pi * 0.5
+      local rr = BODY_SIZE * 0.95 + math.sin(rt * 4) * 4
+      local sx = self.x + math.cos(a) * rr
+      local sy = self.y + math.sin(a) * rr
+      love.graphics.setColor(1, 1, 1, blink)
+      love.graphics.circle("fill", sx, sy, 4)
+    end
+    love.graphics.setLineWidth(1)
+  elseif self.aura_id == "twin" then
+    local rt = love.timer.getTime()
+    love.graphics.setColor(cr, cg, cb, 0.55 * blink)
+    love.graphics.setLineWidth(2)
+    love.graphics.circle("line", self.x, self.y, BODY_SIZE * 0.85 + math.sin(rt * 3) * 6)
+    love.graphics.circle("line", self.x, self.y, BODY_SIZE * 1.15 - math.sin(rt * 3) * 6)
+    love.graphics.setLineWidth(1)
+  elseif self.aura_id == "starlit" then
+    local rt = love.timer.getTime()
+    love.graphics.setColor(1, 1, 1, 0.75 * blink)
+    for i = 0, 5 do
+      local a = rt * 0.8 + i * math.pi / 3
+      local rr = BODY_SIZE * 1.05 + math.sin(rt * 2 + i) * 4
+      local sx = self.x + math.cos(a) * rr
+      local sy = self.y + math.sin(a) * rr
+      love.graphics.rectangle("fill", sx - 2, sy - 2, 4, 4)
+    end
+  end
+
   -- 4) attached fragments
   for _, f in ipairs(self.frags) do
     if f.attached then
