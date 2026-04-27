@@ -22,6 +22,7 @@ local Glow       = require "src.glow"
 local Save       = require "src.save"
 local Net        = require "src.multiplayer"
 local SFX        = require "src.sfx"
+local Mosaic     = require "src.mosaic"
 
 local DESIGN_W, DESIGN_H = 1920, 1080
 
@@ -172,6 +173,7 @@ function love.load()
   world = love.graphics.newCanvas(DESIGN_W, DESIGN_H)
   world:setFilter("linear", "linear")
   Glow.load(DESIGN_W, DESIGN_H)
+  Mosaic.load()
   glitch_shader = love.graphics.newShader(glitch_shader_code)
 
   font_huge  = love.graphics.newFont(150)
@@ -504,30 +506,16 @@ local function drawBackdrop()
 end
 
 local function drawSilhouetteWithGlow(t)
-  local glow = 0.55 + 0.45 * sil_glow
-  local cr, cg, cb = accent[1], accent[2], accent[3]
-
-  -- accent-colored edge glow halos behind the silhouette (additive blend so
-  -- only the edges pick up colour without lifting the dark interior)
-  love.graphics.setBlendMode("add", "alphamultiply")
-  for i = 4, 1, -1 do
-    local s = 1 + i * 0.014
-    local a = 0.07 * glow / i
-    local rs, dw, dh = Video.fitRect(DESIGN_W, DESIGN_H)
-    local cx = DESIGN_W * 0.5
-    local cy = DESIGN_H * 0.5
-    Video.draw(t, cx - dw * s * 0.5, cy - dh * s * 0.5, dw * s, dh * s, cr, cg, cb, a)
-  end
-  love.graphics.setBlendMode("alpha")
-
-  -- silhouette body itself drawn as a deep shadow that sits darker than the
-  -- backdrop -- this is what lets the bright player pop. A faint accent tint
-  -- bleeds in at high intensity so it still pulses with the music.
-  local pulse = 0.35 + 0.25 * sil_glow
-  local r = 0.10 + cr * 0.08 * pulse
-  local g = 0.06 + cg * 0.06 * pulse
-  local b = 0.14 + cb * 0.10 * pulse
-  sil_dx, sil_dy, sil_dw, sil_dh, sil_scale = Video.draw(t, 0, 0, DESIGN_W, DESIGN_H, r, g, b, 1.0)
+  local _, dw, dh = Video.fitRect(DESIGN_W, DESIGN_H)
+  -- send shader uniforms
+  Mosaic.send(love.timer.getTime(), 0.4 + 0.8 * sil_glow,
+              Director.intensity(audio_t or 0), dw, dh)
+  local prev = love.graphics.getShader()
+  love.graphics.setShader(Mosaic.shader())
+  -- the shader maps the source mask -> mosaic palette; we draw at full size
+  -- using a near-white tint so the shader receives unmodified luminance
+  sil_dx, sil_dy, sil_dw, sil_dh, sil_scale = Video.draw(t, 0, 0, DESIGN_W, DESIGN_H, 1, 1, 1, 1)
+  love.graphics.setShader(prev)
 end
 
 local function drawHearts()

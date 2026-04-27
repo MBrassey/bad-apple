@@ -21,28 +21,26 @@ local function pickBag(items)
   return table.remove(bag)
 end
 
--- Aligned to the actual song structure. Verses are sparse, chorus 1 brings
--- the first real wave of obstacles, the bridge cools off, and the final
--- chorus is the real climax. The outro is celebratory not punishing.
+-- Mellow ramp -- the experience priority is presence-and-rhythm, not difficulty.
+-- Climax peaks at 0.40. Most obstacles are decorative even during the chorus.
 local function intensity(t)
-  if t < 13      then return 0.04 end                                  -- intro: a whisper of activity
-  if t < 46      then return 0.10 + 0.10 * ((t - 13) / 33) end         -- verse 1
-  if t < 78      then return 0.22 + 0.16 * ((t - 46) / 32) end         -- chorus 1
-  if t < 111     then return 0.30 + 0.10 * ((t - 78) / 33) end         -- verse 2
-  if t < 144     then return 0.40 + 0.18 * ((t - 111) / 33) end        -- chorus 2 (heavy)
-  if t < 177     then return math.max(0.22, 0.50 - 0.18 * ((t-144)/33)) end -- bridge cools off
-  if t < 210     then return 0.45 + 0.10 * ((t - 177) / 33) end        -- final chorus (climax)
-  return 0.20                                                          -- outro
+  if t < 13      then return 0.03 end                                  -- intro
+  if t < 46      then return 0.08 + 0.06 * ((t - 13) / 33) end         -- verse 1
+  if t < 78      then return 0.16 + 0.10 * ((t - 46) / 32) end         -- chorus 1
+  if t < 111     then return 0.22 + 0.06 * ((t - 78) / 33) end         -- verse 2
+  if t < 144     then return 0.28 + 0.12 * ((t - 111) / 33) end        -- chorus 2
+  if t < 177     then return math.max(0.18, 0.40 - 0.16 * ((t-144)/33)) end -- bridge
+  if t < 210     then return 0.35 + 0.05 * ((t - 177) / 33) end        -- final chorus
+  return 0.15
 end
 
--- Deterministic event gate: accept every Nth event of a given type. Phrasing
--- stays musical because every accepted event still lands exactly on a beat.
--- Random jitter is gone, so density is steady -- no dead-air swings.
+-- Deterministic gate -- accept every Nth event by intensity. Beat-locked,
+-- jitter-free. Effective rate is intentionally low so the field stays open.
 local _gate_count = { kick = 0, snare = 0, hat = 0, beat = 0 }
 local function spawnGate(typ, I, base)
   _gate_count[typ] = (_gate_count[typ] or 0) + 1
-  -- effective rate scales with intensity: 0.4 at I=0, 1.0 at I=0.6+
-  local rate = math.min(1.0, base * (0.45 + 1.05 * I))
+  -- 0.30 at I=0, 0.78 at I=0.45 climax -- a third to two-thirds of beats fire
+  local rate = math.min(0.90, base * (0.32 + 1.05 * I))
   if rate <= 0 then return false end
   local interval = math.max(1, math.floor(1 / rate + 0.5))
   return (_gate_count[typ] % interval) == 0
@@ -79,78 +77,71 @@ end
 
 local function onKick(t, ev, target)
   local I = intensity(t)
-  if not spawnGate("kick", I, 0.55) then return end
+  if not spawnGate("kick", I, 0.45) then return end
   local r = love.math.random()
-  if r < 0.78 or I < 0.30 then
-    -- single slow bullet from an edge aimed loosely at center
+  if r < 0.82 or I < 0.25 then
     local x, y = edgePoint()
-    local dx, dy = dirToCenter(x + rand(-200,200), y + rand(-130,130))
-    Obs.bullet({ x=x, y=y, dx=dx, dy=dy, speed=380 + I * 120, fire_t=0.50, r=10 })
-  elseif r < 0.92 then
-    -- expanding ring with a long warn
-    local x = CENTER_X + rand(-360, 360)
-    local y = CENTER_Y + rand(-220, 220)
-    Obs.ring({ x=x, y=y, maxr=820, speed=300 + I * 130, thick=12, warn=0.50 })
+    local dx, dy = dirToCenter(x + rand(-220,220), y + rand(-150,150))
+    Obs.bullet({ x=x, y=y, dx=dx, dy=dy, speed=290 + I * 90, fire_t=0.50, r=12 })
+  elseif r < 0.94 then
+    local x = CENTER_X + rand(-340, 340)
+    local y = CENTER_Y + rand(-210, 210)
+    Obs.ring({ x=x, y=y, maxr=780, speed=240 + I * 90, thick=14, warn=0.50 })
   else
-    -- small burst
-    local x = rand(280, PLAY_W-280)
-    local y = rand(180, PLAY_H-180)
-    local n = 6 + math.floor(I * 4)
-    Obs.burst({ x=x, y=y, count=n, speed=280 + I*120, r=10, fire_t=0.50, angle=rand(0, math.pi) })
+    local x = rand(320, PLAY_W-320)
+    local y = rand(220, PLAY_H-220)
+    local n = 5 + math.floor(I * 3)
+    Obs.burst({ x=x, y=y, count=n, speed=210 + I*90, r=11, fire_t=0.50, angle=rand(0, math.pi) })
   end
 end
 
 local function onSnare(t, ev, target)
   local I = intensity(t)
-  if I < 0.20 then return end
-  if not spawnGate("snare", I, 0.45) then return end
+  if I < 0.18 then return end
+  if not spawnGate("snare", I, 0.36) then return end
   local r = love.math.random()
-  if r < 0.30 then
-    -- spinner, slow rotation
+  if r < 0.25 then
     local x = CENTER_X + rand(-220, 220)
     local y = CENTER_Y + rand(-160, 160)
     Obs.spinner({
       x=x, y=y,
       angle = rand(0, math.pi),
-      spin = (love.math.random() < 0.5 and -1 or 1) * (0.55 + I * 0.55),
-      length = 720,
-      thick  = 14 + I * 4,
+      spin = (love.math.random() < 0.5 and -1 or 1) * (0.45 + I * 0.45),
+      length = 600,
+      thick  = 18 + I * 4,
       arms   = 2,
-      life   = 1.2 + I * 0.4,
+      life   = 1.0 + I * 0.4,
       warn   = 0.65,
     })
-  elseif r < 0.75 then
-    -- wide-gap wave moving slowly. gap_y now respects playable bounds; the
-    -- earlier 460..1460 range for vertical waves could spawn unreachable gaps.
+  elseif r < 0.78 then
     local horiz = love.math.random() < 0.6
     if horiz then
       Obs.wave({
         dir = (love.math.random() < 0.5) and "right" or "left",
-        thick = 50,
-        gap_y = rand(280, 820),                            -- inside [60..1080]
-        gap_h = math.max(320, 460 - I * 80),
-        speed = 360 + I * 100,
-        warn = 0.65,
+        thick = 56,
+        gap_y = rand(320, 760),
+        gap_h = math.max(380, 520 - I * 80),
+        speed = 280 + I * 80,
+        warn = 0.70,
       })
     else
       Obs.wave({
         dir = (love.math.random() < 0.5) and "down" or "up",
-        thick = 50,
-        gap_y = rand(360, 1560),                           -- inside [60..1860]
-        gap_h = math.max(330, 460 - I * 80),
-        speed = 360 + I * 100,
-        warn = 0.65,
+        thick = 56,
+        gap_y = rand(440, 1480),
+        gap_h = math.max(380, 520 - I * 80),
+        speed = 280 + I * 80,
+        warn = 0.70,
       })
     end
   else
-    -- beam laser, long telegraph
     local horiz = love.math.random() < 0.6
     if horiz then
-      local y = rand(160, PLAY_H - 160)
-      Obs.beam({ ax=-20, ay=y, bx=PLAY_W+20, by=y, warn=0.55, fire=0.24, thick=20 + I*5 })
+      local y = rand(180, PLAY_H - 180)
+      Obs.beam({ ax=-20, ay=y, bx=PLAY_W+20, by=y, warn=0.65, fire=0.20, thick=24 + I*4 })
     else
-      local x = rand(160, PLAY_W - 160)
-      Obs.beam({ ax=x, ay=-20, bx=x, by=PLAY_H+20, warn=0.55, fire=0.24, thick=20 + I*5 })
+      local x = rand(180, PLAY_W - 180)
+      Obs.beam({ ax=x, ay=-20, bx=x, by=PLAY_H+20, warn=0.65, fire=0.20, thick=24 + I*4 })
     end
   end
 end
