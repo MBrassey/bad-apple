@@ -171,13 +171,10 @@ local death_pos = { x = 0, y = 0 }
 local death_audio_t = 0
 local _last_mood_t = nil
 local revives_remaining = 1
--- Silhouette hover hazard: the player can brush through the silhouette
--- without taking damage, but lingering inside it accumulates this timer.
--- When sil_stay_t passes SIL_STAY_THRESHOLD the player takes a hit and
--- the timer resets. Outside the silhouette the timer decays quickly.
-local sil_stay_t = 0
-local SIL_STAY_THRESHOLD = 0.85
-local SIL_STAY_DECAY     = 3.0
+-- Silhouette EDGE hazard: contact with the silhouette boundary is an
+-- instant hit, just like contact with a spawned obstacle's hot zone.
+-- Inside the silhouette and outside in the backdrop are both safe -- only
+-- the actual outline of the shadow hurts you.
 
 -- shop state
 local shop_idx = 1
@@ -283,7 +280,6 @@ local function newRun(fromTime)
   combo = 0
   score = 0
   victory_shown = false
-  sil_stay_t = 0
   -- per-run variation: shuffle the random seed and the mosaic hue offset so
   -- every run looks and plays slightly different even though it's the same
   -- song / same beat events.
@@ -793,9 +789,8 @@ local function update_play(dt)
 
     detectCloseCall(dt)
 
-    -- silhouette EDGE hazard: only the boundary hurts. Inside-silhouette
-    -- and outside-silhouette positions are safe; lingering on the edge
-    -- accumulates a stay timer and dings you when it crosses threshold.
+    -- silhouette edge probe: only the boundary hurts. Interior and
+    -- exterior of the silhouette are both safe.
     local on_edge = false
     if sil_scale > 0 then
       local r = player.size * 0.18
@@ -812,20 +807,15 @@ local function update_play(dt)
         on_edge = Collision.boxStraddles(frame, vx0, vy0, vx1, vy1)
       end
     end
-    if on_edge and not player:invincible() then
-      sil_stay_t = sil_stay_t + dt
-    else
-      sil_stay_t = math.max(0, sil_stay_t - dt * SIL_STAY_DECAY)
-    end
 
-    -- collision: spawned obstacles + lingering-on-silhouette-edge
+    -- collision: any contact with a spawned obstacle hot zone OR with the
+    -- silhouette boundary is an instant hit. Inside/outside the silhouette
+    -- is safe.
     local got_hit = false
     if not player:invincible() then
       local h = Obstacles.checkHit(player.x, player.y, player.size * 0.22)
       if h and player:hit() then got_hit = "obstacle" end
-      if not got_hit and sil_stay_t > SIL_STAY_THRESHOLD then
-        if player:hit() then got_hit = "silhouette"; sil_stay_t = 0 end
-      end
+      if not got_hit and on_edge and player:hit() then got_hit = "silhouette" end
     end
 
     if got_hit then
@@ -1007,17 +997,6 @@ local function drawHUD()
   if combo > 1.5 then
     love.graphics.setColor(accent[1], accent[2], accent[3], 0.95)
     love.graphics.print(string.format("x%d", math.floor(combo)), 240, DESIGN_H - 70)
-  end
-  -- silhouette-stay danger meter (only visible while approaching threshold)
-  if sil_stay_t > 0.05 then
-    local mx, my = 40, 88
-    love.graphics.setColor(1, 1, 1, 0.20)
-    love.graphics.rectangle("fill", mx, my, 160, 10, 3, 3)
-    local k = math.min(1, sil_stay_t / SIL_STAY_THRESHOLD)
-    love.graphics.setColor(1.0, 0.30, 0.40, 0.95)
-    love.graphics.rectangle("fill", mx, my, 160 * k, 10, 3, 3)
-    love.graphics.setColor(1, 1, 1, 0.7)
-    love.graphics.print("HOVER", mx, my + 14)
   end
 
   -- lobby presence
@@ -1335,23 +1314,7 @@ function love.draw()
     drawSilhouetteWithGlow(audio_t)
     Net.draw()
     Obstacles.drawAll(accent)
-    if player then
-      player:draw(playerColor())
-      -- silhouette-stay warning ring: pulses red as the timer climbs
-      if sil_stay_t > 0.30 then
-        local k = math.min(1, sil_stay_t / SIL_STAY_THRESHOLD)
-        local pulse = 0.5 + 0.5 * math.abs(math.sin(love.timer.getTime() * (10 + 18 * k)))
-        for i = 4, 1, -1 do
-          love.graphics.setColor(1.0, 0.20, 0.30, 0.18 * k * pulse)
-          love.graphics.circle("line", player.x, player.y,
-                               player.size * 0.55 + i * 6)
-        end
-        love.graphics.setColor(1.0, 0.30, 0.40, 0.85 * k * pulse)
-        love.graphics.setLineWidth(3)
-        love.graphics.circle("line", player.x, player.y, player.size * 0.55)
-        love.graphics.setLineWidth(1)
-      end
-    end
+    if player then player:draw(playerColor()) end
     drawHUD()
     drawEdgeTints()
     drawScreenFlash()
@@ -1392,6 +1355,53 @@ function love.draw()
   end
   love.graphics.draw(world, dx, dy, 0, scale, scale)
   love.graphics.setShader()
+end
+
+-- Map a mouse coordinate from window pixels to the 1920x1080 design canvas.
+local function mapMouse(mx, my)
+  local sw, sh = love.graphics.getDimensions()
+  local scale = math.min(sw / DESIGN_W, sh / DESIGN_H)
+  local dx = (sw - DESIGN_W * scale) * 0.5
+  local dy = (sh - DESIGN_H * scale) * 0.5
+  return (mx - dx) / scale, (my - dy) / scale
+end
+
+function love.mousepressed(mx, my, button)
+  if button ~= 1 then return end
+  local x, y = mapMouse(mx, my)
+  if state == "menu" then
+    -- click anywhere on the START button starts the game
+    love.event.push("keypressed", "return")
+    return
+  end
+  if state == "lobby" then
+    for _, hit in ipairs(Lobby.hitrects or {}) do
+      if x >= hit.x and x <= hit.x + hit.w and y >= hit.y and y <= hit.y + hit.h then
+        if hit.locked then SFX.play(snd_tick); return end
+        if hit.kind == "color" then
+          if paletteUnlocked(hit.idx) then
+            Save.state.player_color = hit.idx; Save.write(); SFX.play(snd_tick)
+          end
+        elseif hit.kind == "aura" then
+          if auraUnlocked(hit.idx) then
+            Save.state.aura_id = hit.idx; Save.write(); SFX.play(snd_tick)
+            if player then player.aura_id = (AURAS[hit.idx] and AURAS[hit.idx].id) or "default" end
+          end
+        elseif hit.kind == "trail" then
+          if trailUnlocked(hit.idx) then
+            Save.state.trail_id = hit.idx; Save.write(); SFX.play(snd_tick)
+            if player then player.trail_id = (TRAILS[hit.idx] and TRAILS[hit.idx].id) or "sparkle" end
+          end
+        elseif hit.kind == "shape" then
+          if shapeUnlocked(hit.idx) then
+            Save.state.shape_id = hit.idx; Save.write(); SFX.play(snd_tick)
+            if player then player.shape_id = (SHAPES[hit.idx] and SHAPES[hit.idx].id) or "square" end
+          end
+        end
+        return
+      end
+    end
+  end
 end
 
 function love.focus(f)

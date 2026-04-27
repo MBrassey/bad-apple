@@ -36,6 +36,10 @@ M.shader = nil
 M.gate_armed = false
 M._t = 0
 
+-- Hit-rects updated on every draw so love.mousepressed can route clicks.
+-- Each entry: { x, y, w, h, kind = "color"|"aura"|"trail"|"shape", idx }
+M.hitrects = {}
+
 local floor_code = [[
 extern number time_;
 extern vec2 player_;
@@ -109,6 +113,10 @@ local function panelFrame(x, y, w, h, accent)
   love.graphics.line(x, y + t, x + t, y); love.graphics.line(x + w - t, y, x + w, y + t)
   love.graphics.line(x, y + h - t, x + t, y + h); love.graphics.line(x + w - t, y + h, x + w, y + h - t)
   love.graphics.setLineWidth(1)
+end
+
+local function recordHit(kind, idx, x, y, w, h, locked)
+  table.insert(M.hitrects, { kind = kind, idx = idx, x = x, y = y, w = w, h = h, locked = locked })
 end
 
 local function drawSwatch(x, y, sz, rgb, selected, locked)
@@ -200,42 +208,46 @@ local function drawLeftPanel(accent, fonts, ctx)
     local px = sx + c * (sz + gap)
     local py = sy + r * (sz + gap)
     drawSwatch(px, py, sz, p.rgb, i == ctx.color_idx, not ctx.paletteUnlocked(i))
+    recordHit("color", i, px, py, sz, sz, not ctx.paletteUnlocked(i))
   end
   -- helper: compact list panel (used for aura / trail / shape)
-  local function listPanel(title, hint, items, sel_idx, isUnlocked, ay)
+  local function listPanel(title, kind, items, sel_idx, isUnlocked, ay)
     love.graphics.setFont(fonts.med)
     love.graphics.setColor(accent[1], accent[2], accent[3], 1)
     love.graphics.print(title, x + 22, ay)
-    love.graphics.setFont(fonts.small)
-    love.graphics.setColor(1, 1, 1, 0.55)
-    love.graphics.print(hint, x + 22, ay + 30)
     for i, a in ipairs(items) do
-      local row_y = ay + 60 + (i - 1) * 28
+      local row_y = ay + 50 + (i - 1) * 32
       local sel = (i == sel_idx)
       local locked = not isUnlocked(i)
+      -- subtle hover/click affordance: a frame around each row
+      love.graphics.setColor(1, 1, 1, sel and 0.18 or 0.06)
+      love.graphics.rectangle("fill", x + 18, row_y - 4, w - 36, 28, 6, 6)
       if sel then love.graphics.setColor(accent[1], accent[2], accent[3], 1)
       elseif locked then love.graphics.setColor(1, 1, 1, 0.20)
-      else love.graphics.setColor(1, 1, 1, 0.45) end
-      love.graphics.rectangle("fill", x + 22, row_y + 5, 12, 12, 2, 2)
+      else love.graphics.setColor(1, 1, 1, 0.55) end
+      love.graphics.rectangle("fill", x + 26, row_y + 5, 12, 12, 2, 2)
       if locked then love.graphics.setColor(1, 1, 1, 0.30)
       elseif sel then love.graphics.setColor(1, 1, 1, 1)
-      else love.graphics.setColor(1, 1, 1, 0.75) end
-      love.graphics.print(a.name, x + 46, row_y)
+      else love.graphics.setColor(1, 1, 1, 0.85) end
+      love.graphics.print(a.name, x + 50, row_y)
       if locked then
         love.graphics.setColor(1, 0.55, 0.55, 0.85)
         love.graphics.printf(string.format("%d wins", math.max(0, (a.unlock_at or 0) - (ctx.completions or 0))),
                              x + 22, row_y, w - 44, "right")
       end
+      -- click target spans the full row
+      recordHit(kind, i, x + 18, row_y - 4, w - 36, 28, locked)
     end
-    return ay + 60 + #items * 28
+    return ay + 50 + #items * 32
   end
 
   -- AURA / TRAIL / SHAPE stacked vertically. Each shows N wins remaining
-  -- on locked entries so the unlock target is visible.
+  -- on locked entries so the unlock target is visible. Click any row to
+  -- equip; locked rows are inert.
   local ay = sy + (math.ceil(#ctx.palette / cols)) * (sz + gap) + 24
-  ay = listPanel("AURA",   "Z / X   aura",   ctx.auras,  ctx.aura_idx,  ctx.auraUnlocked,  ay) + 18
-  ay = listPanel("TRAIL",  "F / G   trail",  ctx.trails, ctx.trail_idx, ctx.trailUnlocked, ay) + 18
-  ay = listPanel("SHAPE",  "C / V   shape",  ctx.shapes, ctx.shape_idx, ctx.shapeUnlocked, ay)
+  ay = listPanel("AURA",   "aura",   ctx.auras,  ctx.aura_idx,  ctx.auraUnlocked,  ay) + 14
+  ay = listPanel("TRAIL",  "trail",  ctx.trails, ctx.trail_idx, ctx.trailUnlocked, ay) + 14
+  ay = listPanel("SHAPE",  "shape",  ctx.shapes, ctx.shape_idx, ctx.shapeUnlocked, ay)
 end
 
 local function drawRightPanel(accent, fonts, ctx)
@@ -284,7 +296,7 @@ local function drawBottomBar(accent, fonts, ctx)
   love.graphics.setFont(fonts.small)
   love.graphics.setColor(1, 1, 1, 0.85)
   love.graphics.printf("WASD / arrows  move    SPACE / SHIFT  dash    " ..
-                       "Q / E  colour    Z / X  aura    GATE  begin    ESC  exit",
+                       "click swatches to equip    walk into the GATE to begin    ESC  exit",
                        0, DESIGN_H - BOTTOM_H + 50, DESIGN_W, "center")
 end
 
@@ -352,6 +364,8 @@ end
 --   last_unlock, palette, color_idx, paletteUnlocked,
 --   auras, aura_idx, auraUnlocked
 function M.draw(accent, ctx, fonts)
+  -- reset click hit-rects for this frame
+  M.hitrects = {}
   -- backdrop
   love.graphics.clear(0.020, 0.012, 0.040, 1)
   drawFloor(accent)

@@ -262,8 +262,7 @@ function Wave:update(dt, t)
 end
 
 local function drawIlluminatedSlab(x, y, w, h, accent, alpha)
-  local c = self.color or accent
-  local cr, cg, cb = c[1], c[2], c[3]
+  local cr, cg, cb = accent[1], accent[2], accent[3]
   local rad = math.min(w, h) * 0.30
   -- decorative outer glow halos
   for i = 5, 1, -1 do
