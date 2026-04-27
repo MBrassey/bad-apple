@@ -4,6 +4,7 @@
 -- customisations, the unlocks you've earned, and the level intro. Walking
 -- through the glowing gate on the right side starts the song.
 local M = {}
+local Wardrobe = require "src.wardrobe"
 
 local DESIGN_W, DESIGN_H = 1920, 1080
 
@@ -205,9 +206,12 @@ end
 local function drawLeftPanel(accent, fonts, ctx)
   local x, y, w, h = 20, TOP_H, SIDE_W - 40, DESIGN_H - TOP_H - BOTTOM_H
   panelFrame(x, y, w, h)
-  love.graphics.setFont(fonts.med)
-  love.graphics.setColor(accent[1], accent[2], accent[3], 1)
-  love.graphics.print("APPEARANCE", x + 22, y + 22)
+  -- Header strip stays in place; the wardrobe grid handles section titles
+  love.graphics.setFont(fonts.small)
+  love.graphics.setColor(1, 1, 1, 0.45)
+  love.graphics.print("WARDROBE  /  scroll to browse", x + 18, y + h - 22)
+  -- Hand the rest of the panel to the wardrobe module (scrollable tile grid)
+  Wardrobe.draw(x, y, w, h - 20, ctx, accent, fonts)
   love.graphics.setFont(fonts.small)
   love.graphics.setColor(1, 1, 1, 0.55)
   love.graphics.print("Q / E   colour", x + 22, y + 70)
@@ -225,7 +229,7 @@ local function drawLeftPanel(accent, fonts, ctx)
     drawSwatch(px, py, sz, p.rgb, i == ctx.color_idx, not ctx.paletteUnlocked(i))
     recordHit("color", i, px, py, sz, sz, not ctx.paletteUnlocked(i))
   end
-  -- helper: compact list panel (used for aura / trail / shape)
+  if true then return end       -- old list-panel logic kept dead-coded for fallback
   local function listPanel(title, kind, items, sel_idx, isUnlocked, ay)
     love.graphics.setFont(fonts.med)
     love.graphics.setColor(accent[1], accent[2], accent[3], 1)
@@ -388,6 +392,17 @@ function M.draw(accent, ctx, fonts)
   love.graphics.clear(0.020, 0.012, 0.040, 1)
   drawFloor(accent)
   drawGate(accent)
+  -- Bad Apple banner (small silhouette frame) in the top-right
+  if ctx.bannerFrame then
+    local bx, by, bw, bh = DESIGN_W - 220, 100, 180, 160
+    love.graphics.setColor(0.04, 0.05, 0.08, 0.90)
+    love.graphics.rectangle("fill", bx, by, bw, bh, 10, 10)
+    ctx.bannerFrame(bx + 4, by + 4, bw - 8, bh - 8, accent)
+    love.graphics.setColor(1, 1, 1, 0.45)
+    love.graphics.setLineWidth(2)
+    love.graphics.rectangle("line", bx + 0.5, by + 0.5, bw - 1, bh - 1, 10, 10)
+    love.graphics.setLineWidth(1)
+  end
   -- handle floats above your own square
   if M.player and ctx.handle then
     love.graphics.setFont(fonts.small)

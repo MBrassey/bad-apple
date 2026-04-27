@@ -25,6 +25,7 @@ local SFX        = require "src.sfx"
 local Mosaic     = require "src.mosaic"
 local Apples     = require "src.apples"
 local Lobby      = require "src.lobby"
+local Wardrobe   = require "src.wardrobe"
 local Character  = require "src.character"
 
 local DESIGN_W, DESIGN_H = 1920, 1080
@@ -88,23 +89,48 @@ local function paletteUnlocked(idx)
 end
 
 local AURAS = {
-  { id = "default", name = "Vacant",        unlock_at = 0 },
-  { id = "ring",    name = "Saturn's Lace", unlock_at = 1 },
-  { id = "twin",    name = "Mirror Echo",   unlock_at = 3 },
-  { id = "starlit", name = "Star Court",    unlock_at = 5 },
+  { id = "default",  name = "Vacant",         unlock_at = 0 },
+  { id = "ring",     name = "Saturn's Lace",  unlock_at = 1 },
+  { id = "twin",     name = "Mirror Echo",    unlock_at = 2 },
+  { id = "starlit",  name = "Star Court",     unlock_at = 3 },
+  { id = "halo",     name = "Solar Halo",     unlock_at = 4 },
+  { id = "pulse",    name = "Pulse Tide",     unlock_at = 5 },
+  { id = "plasma",   name = "Plasma Field",   unlock_at = 6 },
+  { id = "orbit",    name = "Lone Orbit",     unlock_at = 7 },
+  { id = "shock",    name = "Shockwave",      unlock_at = 8 },
+  { id = "phantom",  name = "Phantom Aura",   unlock_at = 10 },
 }
 
 local TRAILS = {
-  { id = "sparkle", name = "Glint",         unlock_at = 0 },
-  { id = "comet",   name = "Comet's Tail",  unlock_at = 2 },
-  { id = "ember",   name = "Pyre Wake",     unlock_at = 4 },
-  { id = "ghost",   name = "Phantom Drift", unlock_at = 6 },
+  { id = "sparkle",  name = "Glint",          unlock_at = 0 },
+  { id = "comet",    name = "Comet's Tail",   unlock_at = 1 },
+  { id = "ember",    name = "Pyre Wake",      unlock_at = 2 },
+  { id = "ghost",    name = "Phantom Drift",  unlock_at = 3 },
+  { id = "matrix",   name = "Matrix Rain",    unlock_at = 4 },
+  { id = "stardust", name = "Stardust",       unlock_at = 5 },
+  { id = "vapor",    name = "Vapor Wake",     unlock_at = 6 },
+  { id = "bolt",     name = "Lightning",      unlock_at = 7 },
+  { id = "confetti", name = "Confetti",       unlock_at = 8 },
+  { id = "pixel",    name = "Pixel Wake",     unlock_at = 9 },
+  { id = "snow",     name = "Snow Drift",     unlock_at = 10 },
+  { id = "plasma",   name = "Plasma Bolts",   unlock_at = 12 },
+  { id = "petal",    name = "Bloom Petals",   unlock_at = 14 },
+  { id = "aurora",   name = "Aurora Ribbon",  unlock_at = 16 },
+  { id = "solar",    name = "Solar Flare",    unlock_at = 18 },
+  { id = "void",     name = "Void Tendril",   unlock_at = 20 },
 }
 
 local SHAPES = {
-  { id = "square",  name = "Cube",          unlock_at = 0 },
-  { id = "diamond", name = "Cipher",        unlock_at = 2 },
-  { id = "hex",     name = "Lattice",       unlock_at = 4 },
+  { id = "square",    name = "Cube",          unlock_at = 0 },
+  { id = "diamond",   name = "Cipher",        unlock_at = 1 },
+  { id = "hex",       name = "Lattice",       unlock_at = 2 },
+  { id = "triangle",  name = "Edge",          unlock_at = 3 },
+  { id = "circle",    name = "Orb",           unlock_at = 4 },
+  { id = "heart",     name = "Heart",         unlock_at = 5 },
+  { id = "star",      name = "Vega",          unlock_at = 6 },
+  { id = "cross",     name = "Crux",          unlock_at = 7 },
+  { id = "octagon",   name = "Octa",          unlock_at = 9 },
+  { id = "pentagon",  name = "Pent",          unlock_at = 11 },
 }
 
 local function auraUnlocked(idx)
@@ -818,23 +844,24 @@ local function update_play(dt)
     -- silhouette pixel, the player is overlapping the figure -> hit.
     -- This is fair: the empty backdrop is genuinely safe and the
     -- silhouette is a clearly-visible obstacle to dodge.
+    -- Silhouette EDGE-only hazard. The probe spans a small box around the
+    -- player; if that box contains BOTH polarities of the silhouette mask
+    -- the player is straddling the boundary -> hit. Inside the figure and
+    -- outside in the empty backdrop are both safe.
     local on_edge = false
     if sil_scale_x > 0 and sil_scale_y > 0 then
-      -- video-space coords are 0..240 / 0..180; with full-canvas stretch
-      -- the horizontal and vertical scales differ
       local cx_v = (player.x - sil_dx) / sil_scale_x
       local cy_v = (player.y - sil_dy) / sil_scale_y
       if cx_v >= 0 and cy_v >= 0 and cx_v < 240 and cy_v < 180 then
+        -- 5 vpx radius (~3 collision cells) -- guarantees the box can see
+        -- a transition even when the player is one cell from the edge
+        local PROBE_VPX = 5
+        local vx0 = math.max(0,   cx_v - PROBE_VPX)
+        local vy0 = math.max(0,   cy_v - PROBE_VPX)
+        local vx1 = math.min(239, cx_v + PROBE_VPX)
+        local vy1 = math.min(179, cy_v + PROBE_VPX)
         local frame = Video.frameAt(audio_t)
-        local function sample(dx, dy)
-          local sx, sy = cx_v + dx, cy_v + dy
-          if sx < 0 or sy < 0 or sx >= 240 or sy >= 180 then return false end
-          return Collision.sampleVideoSpace(frame, sx, sy)
-        end
-        if sample(0, 0) or sample(-3, 0) or sample(3, 0)
-           or sample(0, -3) or sample(0, 3) then
-          on_edge = true
-        end
+        on_edge = Collision.boxStraddles(frame, vx0, vy0, vx1, vy1)
       end
     end
 
@@ -920,6 +947,10 @@ local function update_play(dt)
 end
 
 function love.update(dt)
+  -- Clamp dt so a backgrounded browser tab returning after a minute can't
+  -- inject a giant time jump that floods the beat queue or fires every
+  -- scheduled event at once. Anything > 50 ms collapses to a normal frame.
+  if dt > 0.05 then dt = 0.05 end
   if DEBUG_QUIT_AT and (love.timer.getTime() - _wall_t0) > DEBUG_QUIT_AT then
     love.event.quit()
   end
@@ -1092,6 +1123,20 @@ local function drawMenu()
   love.graphics.setColor(1, 1, 1, 0.65)
   love.graphics.printf("dodge the shadow.  consume the apple.",
                        0, 410, DESIGN_W, "center")
+  -- Bad Apple banner in the top-right corner: a small frame from the
+  -- silhouette video (the figure holding the apple in the early intro).
+  local bx, by, bw, bh = DESIGN_W - 280, 30, 240, 200
+  love.graphics.setColor(0.04, 0.05, 0.08, 0.90)
+  love.graphics.rectangle("fill", bx, by, bw, bh, 12, 12)
+  Video.draw(1.0, bx + 4, by + 4, bw - 8, bh - 8, accent[1], accent[2], accent[3], 0.95)
+  love.graphics.setColor(1, 1, 1, 0.55)
+  love.graphics.setLineWidth(2)
+  love.graphics.rectangle("line", bx + 0.5, by + 0.5, bw - 1, bh - 1, 12, 12)
+  love.graphics.setLineWidth(1)
+  love.graphics.setFont(font_small)
+  love.graphics.setColor(1, 1, 1, 0.85)
+  love.graphics.print("BAD APPLE", bx + 16, by + bh - 30)
+
   -- single START call to action -- pulsing illuminated button
   local bw, bh = 360, 100
   local bx = DESIGN_W * 0.5 - bw * 0.5
@@ -1333,6 +1378,10 @@ function love.draw()
       auras  = AURAS,  aura_idx  = Save.state.aura_id  or 1, auraUnlocked  = auraUnlocked,
       trails = TRAILS, trail_idx = Save.state.trail_id or 1, trailUnlocked = trailUnlocked,
       shapes = SHAPES, shape_idx = Save.state.shape_id or 1, shapeUnlocked = shapeUnlocked,
+      -- closure that draws a small Bad Apple banner frame for the lobby HUD
+      bannerFrame = function(bx, by, bw, bh, accent)
+        Video.draw(1.0, bx, by, bw, bh, accent[1], accent[2], accent[3], 1.0)
+      end,
     }
     Lobby.draw(playerColor(), ctx,
                { huge = font_huge, big = font_big, med = font_med,
@@ -1395,6 +1444,10 @@ local function mapMouse(mx, my)
   return (mx - dx) / scale, (my - dy) / scale
 end
 
+function love.wheelmoved(dx, dy)
+  if state == "lobby" then Wardrobe.scroll(dy) end
+end
+
 function love.mousepressed(mx, my, button)
   if button ~= 1 then return end
   local x, y = mapMouse(mx, my)
@@ -1404,7 +1457,7 @@ function love.mousepressed(mx, my, button)
     return
   end
   if state == "lobby" then
-    for _, hit in ipairs(Lobby.hitrects or {}) do
+    for _, hit in ipairs(Wardrobe.hitrects or {}) do
       if x >= hit.x and x <= hit.x + hit.w and y >= hit.y and y <= hit.y + hit.h then
         if hit.locked then SFX.play(snd_tick); return end
         if hit.kind == "color" then
@@ -1434,9 +1487,20 @@ function love.mousepressed(mx, my, button)
 end
 
 function love.focus(f)
-  if not f and state == "play" and source then
-    source:pause()
-    state = "paused"
+  if not f then
+    -- Pause the song no matter what state we're in so a backgrounded tab
+    -- doesn't desync. The only state we actually transition is play->paused
+    -- so the user has a clear resume prompt; the lobby beat is gated by
+    -- isLobbyState() / paused special-case in love.update.
+    if source and source:isPlaying() then source:pause() end
+    if state == "play" then state = "paused" end
+  else
+    -- On regaining focus, drop any beat backlog that built up during the
+    -- away period so we don't dump 50 obstacles in one frame.
+    if source and state == "play" then
+      audio_t = audioTime()
+      Beats.reset(audio_t)
+    end
   end
 end
 

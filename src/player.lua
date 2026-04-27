@@ -327,27 +327,68 @@ local function drawRoundedSquare(cx, cy, sz, fillR, fillG, fillB, fillA, cornerR
   love.graphics.rectangle("fill", cx - sz*0.5, cy - sz*0.5, sz, sz, cornerR, cornerR)
 end
 
+local function regPoly(cx, cy, n, r, rot)
+  local pts = {}
+  for i = 0, n - 1 do
+    local a = (rot or -math.pi * 0.5) + i * math.pi * 2 / n
+    table.insert(pts, cx + math.cos(a) * r)
+    table.insert(pts, cy + math.sin(a) * r)
+  end
+  return pts
+end
+
+local function starPoly(cx, cy, points, r_outer, r_inner, rot)
+  local pts = {}
+  for i = 0, points * 2 - 1 do
+    local a = (rot or -math.pi * 0.5) + i * math.pi / points
+    local r = (i % 2 == 0) and r_outer or r_inner
+    table.insert(pts, cx + math.cos(a) * r)
+    table.insert(pts, cy + math.sin(a) * r)
+  end
+  return pts
+end
+
+local function heartPoly(cx, cy, sz)
+  -- 24-sample classic heart parametric
+  local pts = {}
+  local s = sz * 0.058
+  for i = 0, 23 do
+    local t = i * (math.pi * 2) / 24
+    local x = 16 * math.sin(t) ^ 3
+    local y = -(13 * math.cos(t) - 5 * math.cos(2*t) - 2 * math.cos(3*t) - math.cos(4*t))
+    table.insert(pts, cx + x * s)
+    table.insert(pts, cy + y * s)
+  end
+  return pts
+end
+
 local function drawShape(cx, cy, sz, fillR, fillG, fillB, fillA, shape, rot)
   shape = shape or "square"
+  love.graphics.setColor(fillR, fillG, fillB, fillA)
   if shape == "diamond" then
-    love.graphics.push()
-    love.graphics.translate(cx, cy)
+    love.graphics.push(); love.graphics.translate(cx, cy)
     love.graphics.rotate((rot or 0) + math.pi * 0.25)
-    love.graphics.setColor(fillR, fillG, fillB, fillA)
     love.graphics.rectangle("fill", -sz*0.5, -sz*0.5, sz, sz, sz*0.18, sz*0.18)
     love.graphics.pop()
   elseif shape == "hex" then
-    -- hexagon via polygon
-    local pts = {}
-    for i = 0, 5 do
-      local a = (rot or 0) + i * math.pi / 3
-      table.insert(pts, cx + math.cos(a) * sz * 0.55)
-      table.insert(pts, cy + math.sin(a) * sz * 0.55)
-    end
-    love.graphics.setColor(fillR, fillG, fillB, fillA)
-    love.graphics.polygon("fill", pts)
+    love.graphics.polygon("fill", regPoly(cx, cy, 6, sz * 0.55, rot))
+  elseif shape == "triangle" then
+    love.graphics.polygon("fill", regPoly(cx, cy, 3, sz * 0.62, rot))
+  elseif shape == "circle" then
+    love.graphics.circle("fill", cx, cy, sz * 0.50)
+  elseif shape == "heart" then
+    love.graphics.polygon("fill", heartPoly(cx, cy, sz))
+  elseif shape == "star" then
+    love.graphics.polygon("fill", starPoly(cx, cy, 5, sz * 0.58, sz * 0.26, rot))
+  elseif shape == "cross" then
+    local s = sz * 0.30
+    love.graphics.rectangle("fill", cx - sz*0.5, cy - s*0.5, sz, s, s*0.3, s*0.3)
+    love.graphics.rectangle("fill", cx - s*0.5, cy - sz*0.5, s, sz, s*0.3, s*0.3)
+  elseif shape == "octagon" then
+    love.graphics.polygon("fill", regPoly(cx, cy, 8, sz * 0.52, (rot or 0) + math.pi / 8))
+  elseif shape == "pentagon" then
+    love.graphics.polygon("fill", regPoly(cx, cy, 5, sz * 0.55, rot))
   else
-    love.graphics.setColor(fillR, fillG, fillB, fillA)
     love.graphics.rectangle("fill", cx - sz*0.5, cy - sz*0.5, sz, sz, sz*0.25, sz*0.25)
   end
 end
@@ -370,36 +411,112 @@ function M:draw(accent)
 
   -- 1) trail / tracer (under everything). Style depends on equipped trail_id
   local trail_id = self.trail_id or "sparkle"
+  local function drawTrailParticle(s, k)
+    local id = trail_id
+    if id == "comet" then
+      love.graphics.setColor(ax, ay, az, 0.30 * k)
+      love.graphics.circle("fill", s.x, s.y, s.size * 1.8)
+      love.graphics.setColor(1, 1, 1, 0.85 * k)
+      love.graphics.circle("fill", s.x, s.y, s.size * 0.8)
+    elseif id == "ember" then
+      love.graphics.setColor(1.0, 0.55 + 0.3 * k, 0.20, 0.55 * k)
+      love.graphics.circle("fill", s.x, s.y, s.size * 1.4)
+      love.graphics.setColor(1, 1, 0.6, 0.85 * k)
+      love.graphics.circle("fill", s.x, s.y, s.size * 0.55)
+    elseif id == "ghost" then
+      love.graphics.setColor(ax, ay, az, 0.20 * k)
+      love.graphics.rectangle("fill", s.x - s.size*1.2, s.y - s.size*1.2,
+                              s.size*2.4, s.size*2.4, s.size*0.6, s.size*0.6)
+      love.graphics.setColor(0.9, 0.95, 1.0, 0.55 * k)
+      love.graphics.rectangle("line", s.x - s.size*0.6, s.y - s.size*0.6,
+                              s.size*1.2, s.size*1.2, s.size*0.3, s.size*0.3)
+    elseif id == "matrix" then
+      love.graphics.setColor(0.20, 1.00, 0.45, 0.85 * k)
+      local h = s.size * 1.6
+      love.graphics.rectangle("fill", s.x - 1.5, s.y - h, 3, h * 2)
+      love.graphics.setColor(0.85, 1.0, 0.85, k)
+      love.graphics.rectangle("fill", s.x - 1.5, s.y - 1, 3, 3)
+    elseif id == "stardust" then
+      love.graphics.setColor(1, 1, 0.9, 0.65 * k)
+      love.graphics.polygon("fill", starPoly(s.x, s.y, 4, s.size * 1.3, s.size * 0.45, 0))
+    elseif id == "vapor" then
+      for i = 3, 1, -1 do
+        love.graphics.setColor(0.85, 0.90, 1.0, 0.10 * k)
+        love.graphics.circle("fill", s.x, s.y, s.size * (1 + i * 0.6))
+      end
+    elseif id == "bolt" then
+      love.graphics.setColor(0.85, 0.95, 1.0, 0.9 * k)
+      love.graphics.setLineWidth(2)
+      local a = math.atan2(s.vy, s.vx)
+      local nx, ny = -math.sin(a), math.cos(a)
+      local L = s.size * 2.2
+      love.graphics.line(
+        s.x - math.cos(a)*L*0.5, s.y - math.sin(a)*L*0.5,
+        s.x + nx * L * 0.20,     s.y + ny * L * 0.20,
+        s.x + math.cos(a)*L*0.0, s.y + math.sin(a)*L*0.0,
+        s.x - nx * L * 0.18,     s.y - ny * L * 0.18,
+        s.x + math.cos(a)*L*0.5, s.y + math.sin(a)*L*0.5)
+      love.graphics.setLineWidth(1)
+    elseif id == "confetti" then
+      local hue = (s.x + s.y) % 6
+      local cols = {{1,0.4,0.5},{1,0.85,0.4},{0.5,1,0.6},{0.4,0.9,1},{0.85,0.6,1},{1,0.6,0.4}}
+      local c = cols[math.floor(hue) + 1]
+      love.graphics.setColor(c[1], c[2], c[3], 0.90 * k)
+      love.graphics.push(); love.graphics.translate(s.x, s.y); love.graphics.rotate(s.rot)
+      love.graphics.rectangle("fill", -s.size*0.7, -s.size*0.4, s.size*1.4, s.size*0.8, 1, 1)
+      love.graphics.pop()
+    elseif id == "pixel" then
+      love.graphics.setColor(ax, ay, az, 0.85 * k)
+      local sz = s.size * 1.6
+      love.graphics.rectangle("fill", math.floor(s.x - sz*0.5), math.floor(s.y - sz*0.5), sz, sz)
+    elseif id == "snow" then
+      love.graphics.setColor(1, 1, 1, 0.85 * k)
+      love.graphics.circle("fill", s.x, s.y, s.size * 0.6)
+      for i = 0, 5 do
+        local a = i * math.pi / 3
+        love.graphics.line(s.x, s.y, s.x + math.cos(a) * s.size, s.y + math.sin(a) * s.size)
+      end
+    elseif id == "plasma" then
+      love.graphics.setColor(0.55, 0.80, 1.0, 0.45 * k)
+      love.graphics.circle("fill", s.x, s.y, s.size * 1.6)
+      love.graphics.setColor(1, 1, 1, k)
+      love.graphics.circle("fill", s.x, s.y, s.size * 0.45)
+    elseif id == "petal" then
+      love.graphics.setColor(1.0, 0.55, 0.85, 0.80 * k)
+      love.graphics.push(); love.graphics.translate(s.x, s.y); love.graphics.rotate(s.rot)
+      love.graphics.ellipse("fill", 0, 0, s.size * 1.3, s.size * 0.55)
+      love.graphics.pop()
+    elseif id == "aurora" then
+      love.graphics.setColor(0.55, 1.0, 0.80, 0.35 * k)
+      love.graphics.setLineWidth(s.size * 0.9)
+      local L = s.size * 1.8
+      local a = math.atan2(s.vy, s.vx) + math.sin(s.age * 8) * 0.4
+      love.graphics.line(s.x - math.cos(a)*L, s.y - math.sin(a)*L,
+                         s.x + math.cos(a)*L, s.y + math.sin(a)*L)
+      love.graphics.setLineWidth(1)
+    elseif id == "solar" then
+      love.graphics.setColor(1, 0.85, 0.30, 0.55 * k)
+      love.graphics.circle("fill", s.x, s.y, s.size * 1.8)
+      love.graphics.setColor(1, 1, 0.60, k)
+      love.graphics.circle("fill", s.x, s.y, s.size * 0.7)
+    elseif id == "void" then
+      love.graphics.setColor(0, 0, 0, 0.85 * k)
+      love.graphics.circle("fill", s.x, s.y, s.size * 1.4)
+      love.graphics.setColor(0.55, 0.40, 1.0, k)
+      love.graphics.circle("line", s.x, s.y, s.size * 1.4)
+    else  -- glint / sparkle
+      local a = (s.dash and 0.30 or 0.20) * k
+      love.graphics.setColor(ax, ay, az, a)
+      local h = s.size * 1.7
+      love.graphics.rectangle("fill", s.x - h*0.5, s.y - h*0.5, h, h, h*0.4, h*0.4)
+      love.graphics.setColor(1, 1, 1, 0.9 * k)
+      love.graphics.rectangle("fill", s.x - s.size*0.5, s.y - s.size*0.5,
+                              s.size, s.size, s.size*0.35, s.size*0.35)
+    end
+  end
   for _, s in ipairs(self.sparkles) do
     local k = 1 - s.age / s.life
-    if k > 0 then
-      if trail_id == "comet" then
-        love.graphics.setColor(ax, ay, az, 0.30 * k)
-        love.graphics.circle("fill", s.x, s.y, s.size * 1.8)
-        love.graphics.setColor(1, 1, 1, 0.85 * k)
-        love.graphics.circle("fill", s.x, s.y, s.size * 0.8)
-      elseif trail_id == "ember" then
-        love.graphics.setColor(1.0, 0.55 + 0.3 * k, 0.20, 0.55 * k)
-        love.graphics.circle("fill", s.x, s.y, s.size * 1.4)
-        love.graphics.setColor(1, 1, 0.6, 0.85 * k)
-        love.graphics.circle("fill", s.x, s.y, s.size * 0.55)
-      elseif trail_id == "ghost" then
-        love.graphics.setColor(ax, ay, az, 0.20 * k)
-        love.graphics.rectangle("fill", s.x - s.size*1.2, s.y - s.size*1.2,
-                                s.size*2.4, s.size*2.4, s.size*0.6, s.size*0.6)
-        love.graphics.setColor(0.9, 0.95, 1.0, 0.55 * k)
-        love.graphics.rectangle("line", s.x - s.size*0.6, s.y - s.size*0.6,
-                                s.size*1.2, s.size*1.2, s.size*0.3, s.size*0.3)
-      else  -- sparkle (default)
-        local a = (s.dash and 0.30 or 0.20) * k
-        love.graphics.setColor(ax, ay, az, a)
-        local h = s.size * 1.7
-        love.graphics.rectangle("fill", s.x - h*0.5, s.y - h*0.5, h, h, h*0.4, h*0.4)
-        love.graphics.setColor(1, 1, 1, 0.9 * k)
-        love.graphics.rectangle("fill", s.x - s.size*0.5, s.y - s.size*0.5,
-                                s.size, s.size, s.size*0.35, s.size*0.35)
-      end
-    end
+    if k > 0 then drawTrailParticle(s, k) end
   end
 
   -- 2) flying shards (stay alive into death state)
@@ -443,38 +560,98 @@ function M:draw(accent)
     love.graphics.rectangle("fill", self.x - s*0.5, self.y - s*0.5, s, s, s*0.28, s*0.28)
   end
 
-  -- 3b) equipped aura cosmetic (unlocked via completions)
-  if self.aura_id == "ring" then
-    local rt = love.timer.getTime()
+  -- 3b) equipped aura cosmetic
+  local rt = love.timer.getTime()
+  local aura = self.aura_id or "default"
+  if aura == "ring" then
     love.graphics.setColor(cr, cg, cb, 0.85 * blink)
     love.graphics.setLineWidth(3)
-    love.graphics.circle("line", self.x, self.y, BODY_SIZE * 0.95 + math.sin(rt * 4) * 4)
-    -- a few dot satellites
+    local r = BODY_SIZE * 0.95 + math.sin(rt * 4) * 4
+    love.graphics.circle("line", self.x, self.y, r)
     for i = 0, 3 do
       local a = rt * 1.4 + i * math.pi * 0.5
-      local rr = BODY_SIZE * 0.95 + math.sin(rt * 4) * 4
-      local sx = self.x + math.cos(a) * rr
-      local sy = self.y + math.sin(a) * rr
       love.graphics.setColor(1, 1, 1, blink)
-      love.graphics.circle("fill", sx, sy, 4)
+      love.graphics.circle("fill", self.x + math.cos(a)*r, self.y + math.sin(a)*r, 4)
     end
     love.graphics.setLineWidth(1)
-  elseif self.aura_id == "twin" then
-    local rt = love.timer.getTime()
+  elseif aura == "twin" then
     love.graphics.setColor(cr, cg, cb, 0.55 * blink)
     love.graphics.setLineWidth(2)
     love.graphics.circle("line", self.x, self.y, BODY_SIZE * 0.85 + math.sin(rt * 3) * 6)
     love.graphics.circle("line", self.x, self.y, BODY_SIZE * 1.15 - math.sin(rt * 3) * 6)
     love.graphics.setLineWidth(1)
-  elseif self.aura_id == "starlit" then
-    local rt = love.timer.getTime()
+  elseif aura == "starlit" then
     love.graphics.setColor(1, 1, 1, 0.75 * blink)
     for i = 0, 5 do
       local a = rt * 0.8 + i * math.pi / 3
       local rr = BODY_SIZE * 1.05 + math.sin(rt * 2 + i) * 4
-      local sx = self.x + math.cos(a) * rr
-      local sy = self.y + math.sin(a) * rr
-      love.graphics.rectangle("fill", sx - 2, sy - 2, 4, 4)
+      love.graphics.rectangle("fill", self.x + math.cos(a)*rr - 2, self.y + math.sin(a)*rr - 2, 4, 4)
+    end
+  elseif aura == "halo" then
+    -- warm wide halo with soft gold tint
+    for i = 6, 1, -1 do
+      love.graphics.setColor(1.0, 0.85, 0.45, 0.07 * blink)
+      love.graphics.circle("fill", self.x, self.y, BODY_SIZE * 0.7 + i * 8)
+    end
+    love.graphics.setColor(1, 1, 0.85, 0.55 * blink)
+    love.graphics.setLineWidth(2)
+    love.graphics.circle("line", self.x, self.y, BODY_SIZE * 1.05 + math.sin(rt * 1.5) * 3)
+    love.graphics.setLineWidth(1)
+  elseif aura == "pulse" then
+    -- 3 concentric rings each with its own breathing phase
+    for i = 1, 3 do
+      local r = BODY_SIZE * (0.95 + i * 0.18 + math.sin(rt * 2 + i * 1.2) * 0.06)
+      love.graphics.setColor(cr, cg, cb, 0.45 * blink / i)
+      love.graphics.setLineWidth(2)
+      love.graphics.circle("line", self.x, self.y, r)
+    end
+    love.graphics.setLineWidth(1)
+  elseif aura == "plasma" then
+    -- jittery electric ring with random arc breaks
+    love.graphics.setColor(0.55, 0.85, 1.0, 0.85 * blink)
+    love.graphics.setLineWidth(2)
+    local r = BODY_SIZE * 1.0
+    local segs = 24
+    for i = 0, segs - 1 do
+      if (i + math.floor(rt * 12)) % 4 ~= 0 then
+        local a0 = i * math.pi * 2 / segs + math.sin(rt * 6 + i) * 0.04
+        local a1 = a0 + math.pi * 2 / segs * 0.85
+        love.graphics.arc("line", "open", self.x, self.y, r, a0, a1)
+      end
+    end
+    love.graphics.setLineWidth(1)
+  elseif aura == "orbit" then
+    local a = rt * 2.4
+    local r = BODY_SIZE * 1.20
+    local px = self.x + math.cos(a) * r
+    local py = self.y + math.sin(a) * r
+    for i = 4, 1, -1 do
+      love.graphics.setColor(cr, cg, cb, 0.10 * blink)
+      love.graphics.circle("fill", px, py, 4 + i * 4)
+    end
+    love.graphics.setColor(1, 1, 1, blink)
+    love.graphics.circle("fill", px, py, 6)
+  elseif aura == "shock" then
+    -- expanding rings emitted on a cycle
+    for i = 0, 2 do
+      local age = (rt + i * 0.4) % 1.2
+      local k = age / 1.2
+      local r = BODY_SIZE * (0.7 + 1.6 * k)
+      love.graphics.setColor(cr, cg, cb, 0.55 * (1 - k) * blink)
+      love.graphics.setLineWidth(3 * (1 - k))
+      love.graphics.circle("line", self.x, self.y, r)
+    end
+    love.graphics.setLineWidth(1)
+  elseif aura == "phantom" then
+    -- delayed echoes: faded copies trailing the player at recent positions
+    local count = math.min(#self.trail, 5)
+    for i = 1, count do
+      local p = self.trail[math.floor((#self.trail / count) * i)]
+      if p then
+        love.graphics.setColor(cr, cg, cb, 0.18 * (1 - i / (count + 1)) * blink)
+        love.graphics.rectangle("fill", p.x - BODY_SIZE * 0.45, p.y - BODY_SIZE * 0.45,
+                                BODY_SIZE * 0.9, BODY_SIZE * 0.9, BODY_SIZE * 0.18, BODY_SIZE * 0.18)
+      end
     end
   end
 
@@ -490,6 +667,146 @@ function M:draw(accent)
 
   -- 5) the central core (always drawn while alive)
   drawFrag(self.x, self.y, CORE_SIZE, cr, cg, cb, blink, shape)
+end
+
+-- Lobby preview helper: draw a small icon for a given customisation kind
+-- and id at (cx, cy) within radius r. Used to render the wardrobe tiles.
+function M.drawIcon(kind, id, cx, cy, r, accent)
+  local ax, ay, az = accent[1], accent[2], accent[3]
+  if kind == "shape" then
+    drawShape(cx, cy, r * 1.6, ax, ay, az, 1.0, id, 0)
+  elseif kind == "aura" then
+    -- faux body + aura ring sample
+    drawShape(cx, cy, r * 0.85, ax, ay, az, 1.0, "square", 0)
+    if id == "ring" then
+      love.graphics.setColor(1, 1, 1, 0.85)
+      love.graphics.setLineWidth(2)
+      love.graphics.circle("line", cx, cy, r * 0.95)
+      for i = 0, 3 do
+        local a = i * math.pi * 0.5
+        love.graphics.circle("fill", cx + math.cos(a)*r*0.95, cy + math.sin(a)*r*0.95, 2.5)
+      end
+      love.graphics.setLineWidth(1)
+    elseif id == "twin" then
+      love.graphics.setColor(ax, ay, az, 0.7); love.graphics.setLineWidth(2)
+      love.graphics.circle("line", cx, cy, r * 0.80)
+      love.graphics.circle("line", cx, cy, r * 1.05)
+      love.graphics.setLineWidth(1)
+    elseif id == "starlit" then
+      love.graphics.setColor(1,1,1,1)
+      for i = 0, 5 do
+        local a = i * math.pi / 3
+        love.graphics.rectangle("fill", cx + math.cos(a)*r*0.95 - 1.5,
+                                cy + math.sin(a)*r*0.95 - 1.5, 3, 3)
+      end
+    elseif id == "halo" then
+      for i = 4, 1, -1 do
+        love.graphics.setColor(1.0, 0.85, 0.45, 0.10)
+        love.graphics.circle("fill", cx, cy, r * 0.65 + i * 4)
+      end
+    elseif id == "pulse" then
+      love.graphics.setColor(ax, ay, az, 0.7); love.graphics.setLineWidth(2)
+      for i = 1, 3 do love.graphics.circle("line", cx, cy, r * (0.55 + i * 0.18)) end
+      love.graphics.setLineWidth(1)
+    elseif id == "plasma" then
+      love.graphics.setColor(0.55, 0.85, 1.0, 0.95); love.graphics.setLineWidth(2)
+      for i = 0, 11 do
+        if i % 3 ~= 0 then
+          local a = i * math.pi / 6
+          love.graphics.arc("line", "open", cx, cy, r * 0.95, a, a + math.pi/9)
+        end
+      end
+      love.graphics.setLineWidth(1)
+    elseif id == "orbit" then
+      love.graphics.setColor(1, 1, 1, 0.5)
+      love.graphics.circle("line", cx, cy, r * 1.0)
+      love.graphics.setColor(1, 1, 1, 1)
+      love.graphics.circle("fill", cx + r * 1.0, cy, 4)
+    elseif id == "shock" then
+      love.graphics.setColor(ax, ay, az, 0.85); love.graphics.setLineWidth(2)
+      love.graphics.circle("line", cx, cy, r * 0.7)
+      love.graphics.setColor(ax, ay, az, 0.45)
+      love.graphics.circle("line", cx, cy, r * 1.0)
+      love.graphics.setLineWidth(1)
+    elseif id == "phantom" then
+      for i = 0, 3 do
+        love.graphics.setColor(ax, ay, az, 0.18)
+        love.graphics.rectangle("fill", cx - r*0.55 - i * 4, cy - r*0.45,
+                                r*1.1, r*0.9, r*0.2, r*0.2)
+      end
+    end
+  elseif kind == "trail" then
+    -- mock trail: 4 sample particles, faded toward the back
+    local function particle(px, py, k)
+      local s = { x = px, y = py, size = r * 0.20, vx = -1, vy = 0, age = 0, life = 1, rot = 0 }
+      local kk = k                       -- alpha factor
+      if id == "comet" then
+        love.graphics.setColor(ax, ay, az, 0.5 * kk); love.graphics.circle("fill", px, py, r * 0.30)
+        love.graphics.setColor(1, 1, 1, kk); love.graphics.circle("fill", px, py, r * 0.14)
+      elseif id == "ember" then
+        love.graphics.setColor(1, 0.6, 0.2, 0.7 * kk); love.graphics.circle("fill", px, py, r * 0.22)
+        love.graphics.setColor(1, 1, 0.5, kk); love.graphics.circle("fill", px, py, r * 0.10)
+      elseif id == "ghost" then
+        love.graphics.setColor(0.9, 0.95, 1.0, 0.55 * kk); love.graphics.setLineWidth(2)
+        love.graphics.rectangle("line", px - r*0.2, py - r*0.2, r*0.4, r*0.4, 4, 4)
+        love.graphics.setLineWidth(1)
+      elseif id == "matrix" then
+        love.graphics.setColor(0.2, 1.0, 0.45, 0.85 * kk)
+        love.graphics.rectangle("fill", px - 1.5, py - r*0.35, 3, r*0.7)
+      elseif id == "stardust" then
+        love.graphics.setColor(1, 1, 0.85, 0.85 * kk)
+        love.graphics.polygon("fill", starPoly(px, py, 4, r*0.30, r*0.10, 0))
+      elseif id == "vapor" then
+        love.graphics.setColor(0.85, 0.90, 1.0, 0.30 * kk)
+        love.graphics.circle("fill", px, py, r * 0.40)
+      elseif id == "bolt" then
+        love.graphics.setColor(0.85, 0.95, 1.0, kk); love.graphics.setLineWidth(2)
+        love.graphics.line(px - r*0.3, py, px - r*0.1, py - r*0.18, px + r*0.1, py + r*0.18, px + r*0.3, py)
+        love.graphics.setLineWidth(1)
+      elseif id == "confetti" then
+        local cols = {{1,0.4,0.5},{1,0.85,0.4},{0.5,1,0.6},{0.4,0.9,1}}
+        local c = cols[((math.floor(px) % 4) + 1)]
+        love.graphics.setColor(c[1], c[2], c[3], 0.95 * kk)
+        love.graphics.rectangle("fill", px - r*0.18, py - r*0.10, r*0.36, r*0.20)
+      elseif id == "pixel" then
+        love.graphics.setColor(ax, ay, az, kk)
+        love.graphics.rectangle("fill", math.floor(px - r*0.20), math.floor(py - r*0.20), r*0.40, r*0.40)
+      elseif id == "snow" then
+        love.graphics.setColor(1, 1, 1, kk); love.graphics.circle("fill", px, py, r * 0.12)
+        for j = 0, 5 do
+          local a = j * math.pi / 3
+          love.graphics.line(px, py, px + math.cos(a) * r * 0.22, py + math.sin(a) * r * 0.22)
+        end
+      elseif id == "plasma" then
+        love.graphics.setColor(0.55, 0.85, 1.0, 0.55 * kk)
+        love.graphics.circle("fill", px, py, r * 0.30)
+        love.graphics.setColor(1, 1, 1, kk); love.graphics.circle("fill", px, py, r * 0.10)
+      elseif id == "petal" then
+        love.graphics.setColor(1.0, 0.55, 0.85, 0.85 * kk)
+        love.graphics.ellipse("fill", px, py, r * 0.30, r * 0.13)
+      elseif id == "aurora" then
+        love.graphics.setColor(0.55, 1, 0.80, 0.55 * kk); love.graphics.setLineWidth(3)
+        love.graphics.line(px - r*0.30, py + r*0.05, px + r*0.30, py - r*0.05)
+        love.graphics.setLineWidth(1)
+      elseif id == "solar" then
+        love.graphics.setColor(1, 0.85, 0.30, 0.55 * kk)
+        love.graphics.circle("fill", px, py, r * 0.36)
+        love.graphics.setColor(1, 1, 0.6, kk); love.graphics.circle("fill", px, py, r * 0.16)
+      elseif id == "void" then
+        love.graphics.setColor(0, 0, 0, 0.85 * kk); love.graphics.circle("fill", px, py, r * 0.30)
+        love.graphics.setColor(0.55, 0.40, 1.0, kk); love.graphics.circle("line", px, py, r * 0.30)
+      else  -- glint
+        love.graphics.setColor(ax, ay, az, 0.40 * kk)
+        love.graphics.rectangle("fill", px - r*0.20, py - r*0.20, r*0.40, r*0.40, r*0.10, r*0.10)
+        love.graphics.setColor(1, 1, 1, kk)
+        love.graphics.rectangle("fill", px - r*0.10, py - r*0.10, r*0.20, r*0.20, r*0.05, r*0.05)
+      end
+    end
+    -- four particles, alpha fades from front to back
+    for i = 0, 3 do
+      particle(cx + (i - 1.5) * r * 0.45, cy, 1 - i * 0.20)
+    end
+  end
 end
 
 return M

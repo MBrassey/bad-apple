@@ -43,12 +43,12 @@ local function intensity(t)
 end
 
 -- Deterministic gate -- accept every Nth event by intensity. Beat-locked,
--- jitter-free. Effective rate is intentionally low so the field stays open.
+-- jitter-free. Rates softened by 40 % from the previous tuning.
 local _gate_count = { kick = 0, snare = 0, hat = 0, beat = 0 }
 local function spawnGate(typ, I, base)
   _gate_count[typ] = (_gate_count[typ] or 0) + 1
-  -- 0.30 at I=0, 0.78 at I=0.45 climax -- a third to two-thirds of beats fire
-  local rate = math.min(0.90, base * (0.32 + 1.05 * I))
+  -- previous max was ~0.78; cap at 0.55 to enforce the difficulty cut
+  local rate = math.min(0.55, base * (0.20 + 1.05 * I))
   if rate <= 0 then return false end
   local interval = math.max(1, math.floor(1 / rate + 0.5))
   return (_gate_count[typ] % interval) == 0
