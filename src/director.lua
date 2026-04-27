@@ -26,29 +26,26 @@ local function pickBag(items)
   return table.remove(bag)
 end
 
--- Mellow ramp -- the experience priority is presence-and-rhythm, not difficulty.
--- Climax peaks at 0.40. Most obstacles are decorative even during the chorus.
+-- Presence over difficulty. Climax peaks at 0.12 -- another -50% cut on
+-- top of the previous tuning. Most spawns are atmospheric.
 local function intensity(t)
-  -- a tiny spike during the first 6 s so the player sees one obstacle and
-  -- learns the loop before settling into the proper intro
-  if t < 6       then return 0.05 end
-  if t < 13      then return 0.03 end                                  -- intro
-  if t < 46      then return 0.08 + 0.06 * ((t - 13) / 33) end         -- verse 1
-  if t < 78      then return 0.16 + 0.10 * ((t - 46) / 32) end         -- chorus 1
-  if t < 111     then return 0.22 + 0.06 * ((t - 78) / 33) end         -- verse 2
-  if t < 144     then return 0.28 + 0.12 * ((t - 111) / 33) end        -- chorus 2
-  if t < 177     then return math.max(0.18, 0.40 - 0.16 * ((t-144)/33)) end -- bridge
-  if t < 210     then return 0.35 + 0.05 * ((t - 177) / 33) end        -- final chorus
-  return 0.15
+  if t < 6       then return 0.020 end                                  -- micro-intro
+  if t < 13      then return 0.012 end                                  -- intro
+  if t < 46      then return 0.025 + 0.020 * ((t - 13) / 33) end        -- verse 1
+  if t < 78      then return 0.050 + 0.030 * ((t - 46) / 32) end        -- chorus 1
+  if t < 111     then return 0.065 + 0.020 * ((t - 78) / 33) end        -- verse 2
+  if t < 144     then return 0.085 + 0.035 * ((t - 111) / 33) end       -- chorus 2
+  if t < 177     then return math.max(0.055, 0.120 - 0.050 * ((t-144)/33)) end -- bridge
+  if t < 210     then return 0.105 + 0.015 * ((t - 177) / 33) end       -- final chorus
+  return 0.045
 end
 
--- Deterministic gate -- accept every Nth event by intensity. Beat-locked,
--- jitter-free. Rates softened by 40 % from the previous tuning.
+-- Deterministic gate -- accept every Nth event by intensity. Cut another
+-- 50 % from the previous tuning. Cap = 0.28, base multiplier softened.
 local _gate_count = { kick = 0, snare = 0, hat = 0, beat = 0 }
 local function spawnGate(typ, I, base)
   _gate_count[typ] = (_gate_count[typ] or 0) + 1
-  -- previous max was ~0.78; cap at 0.55 to enforce the difficulty cut
-  local rate = math.min(0.55, base * (0.20 + 1.05 * I))
+  local rate = math.min(0.28, base * (0.10 + 0.95 * I))
   if rate <= 0 then return false end
   local interval = math.max(1, math.floor(1 / rate + 0.5))
   return (_gate_count[typ] % interval) == 0
@@ -90,42 +87,37 @@ local function onKick(t, ev, target)
   -- expanded pool: bullets, triangles, rings, bursts, rain (multi-bullet
   -- curtain), and small bar combs at higher intensity.
   if r < 0.40 or I < 0.20 then
-    -- single travelling projectile (bullet OR triangle for variety)
     local x, y = edgePoint()
-    local dx, dy = dirToCenter(x + rand(-220,220), y + rand(-150,150))
+    local dx, dy = dirToCenter(x + rand(-260,260), y + rand(-180,180))
     if love.math.random() < 0.45 then
-      Obs.triangle({ x=x, y=y, dx=dx, dy=dy, speed=320 + I*100, fire_t=0.50, r=13, color=pickColour() })
+      Obs.triangle({ x=x, y=y, dx=dx, dy=dy, speed=200 + I*70, fire_t=0.65, r=13, color=pickColour() })
     else
-      Obs.bullet({ x=x, y=y, dx=dx, dy=dy, speed=290 + I*90, fire_t=0.50, r=12, color=pickColour() })
+      Obs.bullet({ x=x, y=y, dx=dx, dy=dy, speed=190 + I*60, fire_t=0.65, r=12, color=pickColour() })
     end
   elseif r < 0.58 then
-    -- expanding ring
     local x = CENTER_X + rand(-340, 340)
     local y = CENTER_Y + rand(-210, 210)
-    Obs.ring({ x=x, y=y, maxr=780, speed=240 + I*90, thick=14, warn=0.50, color=pickColour() })
+    Obs.ring({ x=x, y=y, maxr=720, speed=160 + I*70, thick=14, warn=0.65, color=pickColour() })
   elseif r < 0.72 then
-    -- small radial burst from a focal point
     local x = rand(360, PLAY_W-360)
     local y = rand(260, PLAY_H-260)
-    local n = 5 + math.floor(I * 3)
-    Obs.burst({ x=x, y=y, count=n, speed=210 + I*90, r=11, fire_t=0.50, angle=rand(0, math.pi), color=pickColour() })
+    local n = 4 + math.floor(I * 2)
+    Obs.burst({ x=x, y=y, count=n, speed=140 + I*70, r=11, fire_t=0.65, angle=rand(0, math.pi), color=pickColour() })
   elseif r < 0.86 then
-    -- rain curtain from above with a gap to slip through
-    Obs.rain({ count=12 + math.floor(I*4), gap_w=280 - I*60,
+    Obs.rain({ count=8 + math.floor(I*3), gap_w=380 - I*60,
                gap_x=rand(360, PLAY_W-360),
-               speed=320 + I*120, r=8, warn=0.55, color=pickColour() })
+               speed=210 + I*80, r=8, warn=0.70, color=pickColour() })
   else
-    -- bar comb (only at any intensity, slow + clearly telegraphed)
     Obs.bar_comb({
-      count = 3 + math.floor(I * 2),
+      count = 3 + math.floor(I * 1.5),
       horizontal = love.math.random() < 0.55,
-      speed = 360 + I * 120,
+      speed = 240 + I * 80,
       thick = 26,
-      stagger = 220,
-      gap_idx = love.math.random(2, 3 + math.floor(I)),
+      stagger = 280,
+      gap_idx = love.math.random(2, 3),
       from_dir = (love.math.random() < 0.5) and 1 or -1,
-      warn = 0.65,
-      life = 3.0,
+      warn = 0.85,
+      life = 3.5,
       color = pickColour(),
     })
   end
@@ -143,48 +135,45 @@ local function onSnare(t, ev, target)
     Obs.spinner({
       x=x, y=y,
       angle = rand(0, math.pi),
-      spin = (love.math.random() < 0.5 and -1 or 1) * (0.45 + I * 0.45),
-      length = 600,
-      thick  = 18 + I * 4,
+      spin = (love.math.random() < 0.5 and -1 or 1) * (0.30 + I * 0.30),
+      length = 540,
+      thick  = 18 + I * 3,
       arms   = 2,
-      life   = 1.0 + I * 0.4,
-      warn   = 0.65,
+      life   = 0.8 + I * 0.3,
+      warn   = 0.85,
       color  = pickColour(),
     })
   elseif r < 0.34 then
-    -- rotating fan / wiper
     local x = CENTER_X + rand(-280, 280)
     local y = CENTER_Y + rand(-180, 180)
     Obs.fan({
       x = x, y = y,
       angle = rand(0, math.pi * 2),
-      sweep = math.pi * (0.20 + 0.18 * (1 - I)),    -- narrower at high I
-      spin  = (love.math.random() < 0.5 and -1 or 1) * (1.1 + I * 1.1),
-      length = 600 + 200 * I,
-      life = 1.4 + I * 0.5,
-      warn = 0.65,
+      sweep = math.pi * (0.16 + 0.12 * (1 - I)),
+      spin  = (love.math.random() < 0.5 and -1 or 1) * (0.75 + I * 0.75),
+      length = 540 + 160 * I,
+      life = 1.1 + I * 0.4,
+      warn = 0.85,
       color = pickColour(),
     })
   elseif r < 0.50 then
-    -- saw-blade row of spikes from a screen edge
     local edges = { "top", "bottom", "left", "right" }
     Obs.spikes({
       edge = edges[love.math.random(#edges)],
-      count = 8 + math.floor(I * 4),
-      w = 110, h = 130 + math.floor(I * 70),
-      gap = 30,
-      life = 0.55 + I * 0.20,
-      warn = 0.70,
+      count = 6 + math.floor(I * 3),
+      w = 110, h = 110 + math.floor(I * 50),
+      gap = 60,
+      life = 0.45 + I * 0.15,
+      warn = 0.95,
       color = pickColour(),
     })
   elseif r < 0.66 then
-    -- spiral pattern from a centre
     Obs.spiral({
       x = CENTER_X + rand(-220, 220), y = CENTER_Y + rand(-160, 160),
-      arms = 2 + math.floor(I * 2),
-      count = 4 + math.floor(I * 2),
-      speed = 240 + I * 100,
-      r = 9, warn = 0.55,
+      arms = 2 + math.floor(I * 1.5),
+      count = 3 + math.floor(I * 1.5),
+      speed = 160 + I * 80,
+      r = 9, warn = 0.70,
       color = pickColour(),
     })
   elseif r < 0.78 then
@@ -193,20 +182,20 @@ local function onSnare(t, ev, target)
       Obs.wave({
         dir = (love.math.random() < 0.5) and "right" or "left",
         thick = 56,
-        gap_y = rand(320, 760),
-        gap_h = math.max(380, 520 - I * 80),
-        speed = 280 + I * 80,
-        warn = 0.70,
+        gap_y = rand(340, 740),
+        gap_h = math.max(460, 600 - I * 80),
+        speed = 200 + I * 60,
+        warn = 0.95,
         color = pickColour(),
       })
     else
       Obs.wave({
         dir = (love.math.random() < 0.5) and "down" or "up",
         thick = 56,
-        gap_y = rand(440, 1480),
-        gap_h = math.max(380, 520 - I * 80),
-        speed = 280 + I * 80,
-        warn = 0.70,
+        gap_y = rand(460, 1460),
+        gap_h = math.max(460, 600 - I * 80),
+        speed = 200 + I * 60,
+        warn = 0.95,
         color = pickColour(),
       })
     end
@@ -214,10 +203,10 @@ local function onSnare(t, ev, target)
     local horiz = love.math.random() < 0.6
     if horiz then
       local y = rand(180, PLAY_H - 180)
-      Obs.beam({ ax=-20, ay=y, bx=PLAY_W+20, by=y, warn=1.10, fire=0.32, thick=22 + I*4, color=pickColour() })
+      Obs.beam({ ax=-20, ay=y, bx=PLAY_W+20, by=y, warn=1.50, fire=0.30, thick=20 + I*3, color=pickColour() })
     else
       local x = rand(180, PLAY_W - 180)
-      Obs.beam({ ax=x, ay=-20, bx=x, by=PLAY_H+20, warn=1.10, fire=0.32, thick=22 + I*4, color=pickColour() })
+      Obs.beam({ ax=x, ay=-20, bx=x, by=PLAY_H+20, warn=1.50, fire=0.30, thick=20 + I*3, color=pickColour() })
     end
   end
 end

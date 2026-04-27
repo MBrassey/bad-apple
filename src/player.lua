@@ -17,8 +17,8 @@ local DASH_SPEED    = 2400
 local DASH_TIME     = 0.22
 -- cooldown must exceed IFRAME_DASH so dash spam can't grant permanent invuln
 local DASH_COOLDOWN = 0.52
-local IFRAME_HIT    = 1.30
-local IFRAME_DASH   = 0.40
+local IFRAME_HIT    = 1.80
+local IFRAME_DASH   = 0.50
 local DASH_BUFFER   = 0.18
 
 -- Body geometry

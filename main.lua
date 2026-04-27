@@ -210,6 +210,20 @@ local death_pos = { x = 0, y = 0 }
 local death_audio_t = 0
 local _last_mood_t = nil
 local revives_remaining = 1
+
+-- Final apple: a floating glowing target the player must touch to clear
+-- the level (instead of the song just ending into the win screen).
+local apple = nil
+local function spawnFinalApple()
+  apple = {
+    cx = 960, cy = 540,           -- orbit centre
+    x  = 960, y  = 540,
+    age = 0,
+    radius = 30,                  -- collision radius
+    bob = love.math.random() * math.pi * 2,
+    drift = love.math.random() * math.pi * 2,
+  }
+end
 -- Silhouette is the obstacle. Any pixel of the bright silhouette body that
 -- the player overlaps deals damage on contact -- it's the figure that's
 -- dangerous, not just the outline. Standing in the empty backdrop is safe.
@@ -775,6 +789,55 @@ local function update_reviving(dt)
   if revive_t > 1.4 then revive() end
 end
 
+local function update_apple_catch(dt)
+  if not apple then return end
+  apple.age = apple.age + dt
+  apple.bob = apple.bob + dt * 1.6
+  apple.drift = apple.drift + dt * 0.35
+  -- floats in a slow Lissajous orbit that gently drifts the centre
+  apple.cx = 960 + math.sin(apple.drift * 0.6) * 320
+  apple.cy = 540 + math.sin(apple.drift) * 160
+  apple.x = apple.cx + math.cos(apple.bob) * 90
+  apple.y = apple.cy + math.sin(apple.bob * 1.4) * 70
+
+  if player then
+    player:update(dt)
+    -- detect catch
+    local dx = player.x - apple.x
+    local dy = player.y - apple.y
+    if dx*dx + dy*dy < (apple.radius + player.size * 0.40) ^ 2 then
+      -- caught! roll into the win flow.
+      Save.state.completed = true
+      if not victory_shown then
+        Save.state.best_time = math.max(Save.state.best_time or 0, audio_t)
+        ach("apple_complete")
+        if player.hits == 0 then ach("untouched") end
+        if player.dashes == 0 then ach("pacifist") end
+        victory_shown = true
+        Save.state.completions = (Save.state.completions or 0) + 1
+        local newly
+        for _, p in ipairs(PLAYER_PALETTE) do
+          if p.unlock_at == Save.state.completions then newly = "colour: " .. p.name; break end
+        end
+        if not newly then for _, a in ipairs(AURAS) do
+          if a.unlock_at == Save.state.completions then newly = "aura: " .. a.name; break end end end
+        if not newly then for _, a in ipairs(TRAILS) do
+          if a.unlock_at == Save.state.completions then newly = "trail: " .. a.name; break end end end
+        if not newly then for _, a in ipairs(SHAPES) do
+          if a.unlock_at == Save.state.completions then newly = "shape: " .. a.name; break end end end
+        Save.state.last_unlock = newly
+        Save.write()
+        SFX.play(snd_revive)
+        fxFlash("#ffffff", 1000)
+        fxShake(0.7, 500)
+        fxRipple("#ffffff", apple.x / DESIGN_W, apple.y / DESIGN_H, 1200)
+      end
+      apple = nil
+      state = "win"
+    end
+  end
+end
+
 local function update_win(dt)
   if source and source:isPlaying() then audio_t = audioTime() end
   bg_pulse = math.max(0, bg_pulse - dt * 1.5)
@@ -787,8 +850,18 @@ local function update_play(dt)
     audio_t = audioTime()
     elapsed_play = elapsed_play + dt
 
-    -- end of song
+    -- end of song -- spawn the final glowing apple, transition to a
+    -- catch state. Win only triggers once the player touches the apple.
     local dur = (Beats.duration > 0 and Beats.duration or Video.duration())
+    if audio_t >= dur - 0.10 and state == "play" then
+      if source then source:pause() end
+      Obstacles.reset()
+      spawnFinalApple()
+      state = "apple_catch"
+      fxFlash("#ffffff", 400)
+      fxRipple("#ffffff", 0.5, 0.5, 800)
+      return
+    end
     if audio_t >= dur - 0.10 then
       state = "win"
       Save.state.completed = true
@@ -977,6 +1050,7 @@ function love.update(dt)
   elseif state == "dying"     then update_dying(dt)
   elseif state == "reviving"  then update_reviving(dt)
   elseif state == "play"      then update_play(dt)
+  elseif state == "apple_catch" then update_apple_catch(dt)
   elseif state == "win"       then update_win(dt)
   end
   -- music routing: lobby beat plays in chrome states, stops during play
@@ -1387,6 +1461,40 @@ function love.draw()
     if state == "reviving" then drawNotOverScreen() end
     if state == "win"      then drawWin()           end
     if state == "shop"     then drawShop()          end
+    if state == "apple_catch" and apple then
+      -- glowing pulsating apple, slightly drifting around the player
+      local rt = love.timer.getTime()
+      local pulse = 0.85 + 0.15 * math.sin(rt * 4)
+      local cx, cy, r = apple.x, apple.y, apple.radius
+      -- soft outer glow halos
+      for i = 8, 1, -1 do
+        love.graphics.setColor(1.0, 0.30, 0.45, 0.06 * pulse)
+        love.graphics.circle("fill", cx, cy, r + i * 6)
+      end
+      -- bright pulsing white border
+      love.graphics.setColor(1, 1, 1, pulse)
+      love.graphics.setLineWidth(4)
+      love.graphics.circle("line", cx, cy, r)
+      love.graphics.setLineWidth(1)
+      -- red apple body
+      love.graphics.setColor(1.0, 0.30, 0.45, 1)
+      love.graphics.circle("fill", cx, cy, r - 2)
+      -- white shine
+      love.graphics.setColor(1, 1, 1, 0.85)
+      love.graphics.circle("fill", cx - r * 0.32, cy - r * 0.32, r * 0.22)
+      -- stem
+      love.graphics.setColor(0.50, 0.30, 0.18, 1)
+      love.graphics.setLineWidth(4)
+      love.graphics.line(cx + 1, cy - r + 1, cx + 7, cy - r - 12)
+      -- leaf
+      love.graphics.setColor(0.50, 0.85, 0.45, 1)
+      love.graphics.circle("fill", cx + 12, cy - r - 8, 7)
+      love.graphics.setLineWidth(1)
+      -- prompt
+      love.graphics.setFont(font_med)
+      love.graphics.setColor(1, 0.85, 0.95, 0.95)
+      love.graphics.printf("CATCH THE APPLE", 0, 80, DESIGN_W, "center")
+    end
     if state == "lobby"    then
       -- override the silhouette + obstacles draw with the lobby scene
     end
