@@ -87,19 +87,47 @@ local function onKick(t, ev, target)
   local I = intensity(t)
   if not spawnGate("kick", I, 0.45) then return end
   local r = love.math.random()
-  if r < 0.82 or I < 0.25 then
+  -- expanded pool: bullets, triangles, rings, bursts, rain (multi-bullet
+  -- curtain), and small bar combs at higher intensity.
+  if r < 0.40 or I < 0.20 then
+    -- single travelling projectile (bullet OR triangle for variety)
     local x, y = edgePoint()
     local dx, dy = dirToCenter(x + rand(-220,220), y + rand(-150,150))
-    Obs.bullet({ x=x, y=y, dx=dx, dy=dy, speed=290 + I * 90, fire_t=0.50, r=12, color=pickColour() })
-  elseif r < 0.94 then
+    if love.math.random() < 0.45 then
+      Obs.triangle({ x=x, y=y, dx=dx, dy=dy, speed=320 + I*100, fire_t=0.50, r=13, color=pickColour() })
+    else
+      Obs.bullet({ x=x, y=y, dx=dx, dy=dy, speed=290 + I*90, fire_t=0.50, r=12, color=pickColour() })
+    end
+  elseif r < 0.58 then
+    -- expanding ring
     local x = CENTER_X + rand(-340, 340)
     local y = CENTER_Y + rand(-210, 210)
-    Obs.ring({ x=x, y=y, maxr=780, speed=240 + I * 90, thick=14, warn=0.50, color=pickColour() })
-  else
-    local x = rand(320, PLAY_W-320)
-    local y = rand(220, PLAY_H-220)
+    Obs.ring({ x=x, y=y, maxr=780, speed=240 + I*90, thick=14, warn=0.50, color=pickColour() })
+  elseif r < 0.72 then
+    -- small radial burst from a focal point
+    local x = rand(360, PLAY_W-360)
+    local y = rand(260, PLAY_H-260)
     local n = 5 + math.floor(I * 3)
     Obs.burst({ x=x, y=y, count=n, speed=210 + I*90, r=11, fire_t=0.50, angle=rand(0, math.pi), color=pickColour() })
+  elseif r < 0.86 then
+    -- rain curtain from above with a gap to slip through
+    Obs.rain({ count=12 + math.floor(I*4), gap_w=280 - I*60,
+               gap_x=rand(360, PLAY_W-360),
+               speed=320 + I*120, r=8, warn=0.55, color=pickColour() })
+  else
+    -- bar comb (only at any intensity, slow + clearly telegraphed)
+    Obs.bar_comb({
+      count = 3 + math.floor(I * 2),
+      horizontal = love.math.random() < 0.55,
+      speed = 360 + I * 120,
+      thick = 26,
+      stagger = 220,
+      gap_idx = love.math.random(2, 3 + math.floor(I)),
+      from_dir = (love.math.random() < 0.5) and 1 or -1,
+      warn = 0.65,
+      life = 3.0,
+      color = pickColour(),
+    })
   end
 end
 
@@ -108,7 +136,8 @@ local function onSnare(t, ev, target)
   if I < 0.18 then return end
   if not spawnGate("snare", I, 0.36) then return end
   local r = love.math.random()
-  if r < 0.25 then
+  -- expanded pool: spinner, fan, spikes (saw row), wave, beam, spiral.
+  if r < 0.18 then
     local x = CENTER_X + rand(-220, 220)
     local y = CENTER_Y + rand(-160, 160)
     Obs.spinner({
@@ -121,6 +150,42 @@ local function onSnare(t, ev, target)
       life   = 1.0 + I * 0.4,
       warn   = 0.65,
       color  = pickColour(),
+    })
+  elseif r < 0.34 then
+    -- rotating fan / wiper
+    local x = CENTER_X + rand(-280, 280)
+    local y = CENTER_Y + rand(-180, 180)
+    Obs.fan({
+      x = x, y = y,
+      angle = rand(0, math.pi * 2),
+      sweep = math.pi * (0.20 + 0.18 * (1 - I)),    -- narrower at high I
+      spin  = (love.math.random() < 0.5 and -1 or 1) * (1.1 + I * 1.1),
+      length = 600 + 200 * I,
+      life = 1.4 + I * 0.5,
+      warn = 0.65,
+      color = pickColour(),
+    })
+  elseif r < 0.50 then
+    -- saw-blade row of spikes from a screen edge
+    local edges = { "top", "bottom", "left", "right" }
+    Obs.spikes({
+      edge = edges[love.math.random(#edges)],
+      count = 8 + math.floor(I * 4),
+      w = 110, h = 130 + math.floor(I * 70),
+      gap = 30,
+      life = 0.55 + I * 0.20,
+      warn = 0.70,
+      color = pickColour(),
+    })
+  elseif r < 0.66 then
+    -- spiral pattern from a centre
+    Obs.spiral({
+      x = CENTER_X + rand(-220, 220), y = CENTER_Y + rand(-160, 160),
+      arms = 2 + math.floor(I * 2),
+      count = 4 + math.floor(I * 2),
+      speed = 240 + I * 100,
+      r = 9, warn = 0.55,
+      color = pickColour(),
     })
   elseif r < 0.78 then
     local horiz = love.math.random() < 0.6
