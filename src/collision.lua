@@ -8,6 +8,12 @@ local ROW_BYTES   = W / 8                 -- 10
 local FRAME_BYTES = ROW_BYTES * H         -- 600
 M.W, M.H = W, H
 
+-- Sheets render at 240x180 (see src/video.lua FRAME_W/FRAME_H). The collision
+-- mask covers the same silhouette area at 80x60. Callers pass coordinates in
+-- the sheet's video-space (0..240, 0..180) and we scale to collision cells.
+local VIDEO_W, VIDEO_H = 240, 180
+M.VIDEO_W, M.VIDEO_H = VIDEO_W, VIDEO_H
+
 local data = nil
 local total_frames = 0
 
@@ -34,20 +40,20 @@ function M.sample(frame, cx, cy)
   return (math.floor(byte / mask) % 2) == 1
 end
 
--- Sample at floating-point video-space coords (0..480, 0..360).
+-- Sample at floating-point video-space coords (0..240, 0..180).
 function M.sampleVideoSpace(frame, vx, vy)
-  local cx = math.floor(vx * W / 480)
-  local cy = math.floor(vy * H / 360)
+  local cx = math.floor(vx * W / VIDEO_W)
+  local cy = math.floor(vy * H / VIDEO_H)
   return M.sample(frame, cx, cy)
 end
 
--- Test a small box (in video-space coords) for any silhouette pixel.
--- vx0, vy0, vx1, vy1: bounding rect in 0..480 / 0..360 coords.
+-- Test a small box (in video-space coords 0..240 / 0..180) for any
+-- silhouette pixel.
 function M.boxHits(frame, vx0, vy0, vx1, vy1)
-  local cx0 = math.max(0, math.floor(vx0 * W / 480))
-  local cy0 = math.max(0, math.floor(vy0 * H / 360))
-  local cx1 = math.min(W - 1, math.floor(vx1 * W / 480))
-  local cy1 = math.min(H - 1, math.floor(vy1 * H / 360))
+  local cx0 = math.max(0, math.floor(vx0 * W / VIDEO_W))
+  local cy0 = math.max(0, math.floor(vy0 * H / VIDEO_H))
+  local cx1 = math.min(W - 1, math.floor(vx1 * W / VIDEO_W))
+  local cy1 = math.min(H - 1, math.floor(vy1 * H / VIDEO_H))
   for cy = cy0, cy1 do
     local row = frame * FRAME_BYTES + cy * ROW_BYTES + 1
     for cx = cx0, cx1 do
@@ -65,10 +71,10 @@ end
 -- inside the silhouette interior or outside in the backdrop does NOT
 -- straddle (returns false), so neither hurts.
 function M.boxStraddles(frame, vx0, vy0, vx1, vy1)
-  local cx0 = math.max(0, math.floor(vx0 * W / 480))
-  local cy0 = math.max(0, math.floor(vy0 * H / 360))
-  local cx1 = math.min(W - 1, math.floor(vx1 * W / 480))
-  local cy1 = math.min(H - 1, math.floor(vy1 * H / 360))
+  local cx0 = math.max(0, math.floor(vx0 * W / VIDEO_W))
+  local cy0 = math.max(0, math.floor(vy0 * H / VIDEO_H))
+  local cx1 = math.min(W - 1, math.floor(vx1 * W / VIDEO_W))
+  local cy1 = math.min(H - 1, math.floor(vy1 * H / VIDEO_H))
   local saw_bright, saw_dark = false, false
   for cy = cy0, cy1 do
     local row = frame * FRAME_BYTES + cy * ROW_BYTES + 1

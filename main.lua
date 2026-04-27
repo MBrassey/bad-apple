@@ -803,17 +803,19 @@ local function update_play(dt)
     -- silhouette is a clearly-visible obstacle to dodge.
     local on_edge = false
     if sil_scale > 0 then
+      -- video-space coords are 0..240 / 0..180 (matches src/video.lua sheets)
       local cx_v = (player.x - sil_dx) / sil_scale
       local cy_v = (player.y - sil_dy) / sil_scale
-      if cx_v >= 0 and cy_v >= 0 and cx_v < 480 and cy_v < 360 then
+      if cx_v >= 0 and cy_v >= 0 and cx_v < 240 and cy_v < 180 then
         local frame = Video.frameAt(audio_t)
         local function sample(dx, dy)
           local sx, sy = cx_v + dx, cy_v + dy
-          if sx < 0 or sy < 0 or sx >= 480 or sy >= 360 then return false end
+          if sx < 0 or sy < 0 or sx >= 240 or sy >= 180 then return false end
           return Collision.sampleVideoSpace(frame, sx, sy)
         end
-        if sample(0, 0)  or sample(-4, 0) or sample(4, 0)
-           or sample(0, -4) or sample(0, 4) then
+        -- 5-tap probe inside the player's visible footprint (~3 vpx ≈ 1 cell)
+        if sample(0, 0) or sample(-3, 0) or sample(3, 0)
+           or sample(0, -3) or sample(0, 3) then
           on_edge = true
         end
       end
