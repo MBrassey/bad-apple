@@ -102,7 +102,7 @@ function M:tryDash()
   if ix == 0 and iy == 0 then return false end
   self.dash_dx, self.dash_dy = ix, iy
   self.dash_t = DASH_TIME
-  self.dash_cd = DASH_COOLDOWN
+  self.dash_cd = DASH_COOLDOWN * (self.dash_cooldown_mul or 1)
   self.iframes = math.max(self.iframes, IFRAME_DASH)
   self.dashes = self.dashes + 1
   self.dash_buffer = 0
@@ -227,7 +227,8 @@ end
 local function spawnSparkles(self, dt)
   local mv = math.sqrt(self.vx*self.vx + self.vy*self.vy)
   if mv < MOVE_THRESHOLD then return end
-  local rate = SPARKLE_HZ * (self:dashing() and 3.0 or 1.0)
+  local boost = self.sparkle_boost and 2.0 or 1.0
+  local rate = SPARKLE_HZ * (self:dashing() and 3.0 or 1.0) * boost
   self.sparkle_acc = self.sparkle_acc + dt * rate
   while self.sparkle_acc >= 1 do
     self.sparkle_acc = self.sparkle_acc - 1
@@ -392,9 +393,12 @@ function M:draw(accent)
   end
 
   -- 3) collective body glow halo (only while body has fragments)
-  for i = 5, 1, -1 do
-    local s = BODY_SIZE + i * 16
-    love.graphics.setColor(cr, cg, cb, 0.05 * blink)
+  local halo_n = self.halo_boost and 9 or 5
+  local halo_step = self.halo_boost and 18 or 16
+  local halo_a = self.halo_boost and 0.07 or 0.05
+  for i = halo_n, 1, -1 do
+    local s = BODY_SIZE + i * halo_step
+    love.graphics.setColor(cr, cg, cb, halo_a * blink)
     love.graphics.rectangle("fill", self.x - s*0.5, self.y - s*0.5, s, s, s*0.28, s*0.28)
   end
 

@@ -9,6 +9,7 @@ local M = {}
 local code = [[
 extern number time_;
 extern number pulse;
+extern number hue_off;
 extern vec2 size_;
 
 vec3 palette4(float t) {
@@ -28,9 +29,10 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 sc) {
   float lum = Texel(tex, uv).r;
 
   // hue drifts across the frame; the dominant axis sweeps with time
+  // hue_off adds a per-run rotation so each play feels different
   float ang = uv.x * 1.6 + uv.y * 1.1 + time_ * 0.10;
   float hue = 0.5 + 0.5 * sin(ang) + 0.18 * sin(uv.y * 4.0 - time_ * 0.27);
-  vec3 col = palette4(hue);
+  vec3 col = palette4(hue + hue_off);
 
   // silhouette glow: the bright pixels get the colour at full saturation,
   // boosted by the kick pulse. The interior (very bright) stays almost white
@@ -55,14 +57,19 @@ vec4 effect(vec4 color, Image tex, vec2 uv, vec2 sc) {
 ]]
 
 local shader
+local hue_offset = 0
 
 function M.load()
   shader = love.graphics.newShader(code)
 end
 
+function M.setHueOffset(o) hue_offset = o or 0 end
+function M.hueOffset() return hue_offset end
+
 function M.send(time_, pulse, intensity, w, h)
   shader:send("time_", time_)
   shader:send("pulse", math.min(1.5, pulse or 0))
+  shader:send("hue_off", hue_offset)
   shader:send("size_", { w or 1, h or 1 })
 end
 

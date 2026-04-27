@@ -23,6 +23,7 @@ local Save       = require "src.save"
 local Net        = require "src.multiplayer"
 local SFX        = require "src.sfx"
 local Mosaic     = require "src.mosaic"
+local Apples     = require "src.apples"
 
 local DESIGN_W, DESIGN_H = 1920, 1080
 
@@ -82,6 +83,16 @@ local revive_t  = 0   -- "IT'S NOT OVER" duration
 local death_pos = { x = 0, y = 0 }
 local death_audio_t = 0
 local _last_mood_t = nil
+
+-- shop state
+local shop_idx = 1
+local SHOP_ITEMS = {
+  { key="sparkles", title="Bigger Sparkle Trail", desc="Doubles trail density + life",     cost=8  },
+  { key="halo",     title="Brighter Aura",        desc="Larger glow halo around the body", cost=10 },
+  { key="dash",     title="Quicker Dash",         desc="Shorter dash cooldown (-25%)",     cost=15 },
+  { key="magnet",   title="Apple Magnet",         desc="Apples drift toward you",          cost=18 },
+  { key="hp",       title="Extra Heart",          desc="One additional HP fragment",       cost=25 },
+}
 
 -- gameplay metrics
 local combo = 0       -- consecutive obstacle dodges
@@ -161,6 +172,27 @@ local function newRun(fromTime)
   combo = 0
   score = 0
   victory_shown = false
+  -- per-run variation: shuffle the random seed and the mosaic hue offset so
+  -- every run looks and plays slightly different even though it's the same
+  -- song / same beat events.
+  love.math.setRandomSeed(os.time() + Save.state.runs * 9973)
+  Mosaic.setHueOffset(love.math.random())
+  Apples.reset()
+  Apples.player_ref = player
+  Apples.magnet = Save.state.upgrades and Save.state.upgrades.magnet or false
+  -- apply HP upgrade
+  if Save.state.upgrades and Save.state.upgrades.hp then
+    player.hp = player.hp + 1
+  end
+  if Save.state.upgrades and Save.state.upgrades.dash then
+    player.dash_cooldown_mul = 0.75
+  end
+  if Save.state.upgrades and Save.state.upgrades.sparkles then
+    player.sparkle_boost = true
+  end
+  if Save.state.upgrades and Save.state.upgrades.halo then
+    player.halo_boost = true
+  end
 end
 
 -- Begin a soft revive: keep player position, full HP, brief i-frames, song
@@ -203,6 +235,16 @@ function love.load()
   Save.load()
   if Save.state.volume == nil then Save.state.volume = 0.85 end
   if Save.state.player_color == nil then Save.state.player_color = 1 end
+  if Save.state.apples == nil then Save.state.apples = 0 end
+  if Save.state.upgrades == nil then
+    Save.state.upgrades = {
+      sparkles = false,    -- 8 -- doubles sparkle density and life
+      halo     = false,    -- 10 -- bigger glow halo around the body
+      dash     = false,    -- 15 -- shorter dash cooldown
+      magnet   = false,    -- 18 -- apples drift toward player
+      hp       = false,    -- 25 -- one extra HP fragment
+    }
+  end
   Net.load()
   _wall_t0 = love.timer.getTime()
   state = "loading"
@@ -259,6 +301,7 @@ function love.keypressed(key)
       SFX.play(snd_tick)
       Save.state.player_color = (Save.state.player_color % #PLAYER_PALETTE) + 1
       Save.write()
+    elseif key == "b" then SFX.play(snd_tick); state = "shop"; shop_idx = 1
     elseif key == "m" then
       SFX.play(snd_tick)
       if Net.enabled then Net.leave() else Net.tryJoinPublic() end
@@ -297,12 +340,29 @@ function love.keypressed(key)
   elseif state == "dead" then
     if key == "r" or key == "return" then newRun(checkpoint_time)
     elseif key == "n" then newRun(0)
+    elseif key == "b" then state = "shop"; SFX.play(snd_tick)
     elseif key == "escape" then state = "menu" end
   elseif state == "win" then
     if key == "return" or key == "space" then
       if LOOP then run_loops = run_loops + 1; if run_loops >= 1 then ach("loop_lover") end; newRun(0) else state = "menu" end
+    elseif key == "b" then state = "shop"; SFX.play(snd_tick)
     elseif key == "escape" then state = "menu"
     elseif key == "l" then LOOP = not LOOP end
+  elseif state == "shop" then
+    if key == "up" or key == "w" then
+      shop_idx = ((shop_idx - 2) % #SHOP_ITEMS) + 1; SFX.play(snd_tick)
+    elseif key == "down" or key == "s" then
+      shop_idx = (shop_idx % #SHOP_ITEMS) + 1; SFX.play(snd_tick)
+    elseif key == "return" or key == "space" then
+      local item = SHOP_ITEMS[shop_idx]
+      if not Save.state.upgrades[item.key] and (Save.state.apples or 0) >= item.cost then
+        Save.state.apples = Save.state.apples - item.cost
+        Save.state.upgrades[item.key] = true
+        Save.write()
+        SFX.play(snd_revive)
+        fxFlash("#ffffff", 220)
+      end
+    elseif key == "escape" or key == "b" then state = "menu"; SFX.play(snd_tick) end
   end
 end
 
@@ -430,6 +490,15 @@ function love.update(dt)
     Obstacles.updateAll(dt, audio_t)
     player:update(dt)
     Video.update(audio_t, 0.6)         -- prefetch upcoming sheet
+    Apples.update(dt, Director.intensity(audio_t))
+    do
+      local n = Apples.collect(player)
+      if n > 0 then
+        Save.state.apples = (Save.state.apples or 0) + n
+        SFX.play(snd_tick)
+        Save.write()
+      end
+    end
 
     Net.broadcast(player, dt)
 
@@ -593,6 +662,14 @@ local function drawHUD()
     love.graphics.setColor(accent[1], accent[2], accent[3], 0.95)
     love.graphics.print(string.format("x%d", math.floor(combo)), 240, DESIGN_H - 70)
   end
+  -- glowy apple counter
+  local ax, ay = 40, 88
+  love.graphics.setColor(1, 0.30, 0.45, 1)
+  love.graphics.circle("fill", ax + 13, ay + 14, 10)
+  love.graphics.setColor(1, 1, 1, 0.85)
+  love.graphics.circle("fill", ax + 9, ay + 10, 3)
+  love.graphics.setColor(1, 1, 1, 0.95)
+  love.graphics.print(string.format("%d", Save.state.apples or 0), ax + 32, ay)
 
   -- lobby presence
   if Net.enabled then
@@ -664,6 +741,7 @@ local function drawMenu()
     string.format("L   replay-on-win  [%s]", LOOP and "ON" or "OFF"),
     string.format("M   lobby ghosts   [%s]", Net.enabled and "ON" or "OFF"),
     string.format("- / +   volume  [%d%%]", math.floor((Save.state.volume or 0.85) * 100)),
+    "B   apple shop",
     "ESC  quit",
   }
   for i, line in ipairs(lines) do
@@ -773,6 +851,67 @@ local function drawNotOverScreen()
   end
 end
 
+local function drawShop()
+  love.graphics.setColor(0.04, 0.02, 0.07, 0.95)
+  love.graphics.rectangle("fill", 0, 0, DESIGN_W, DESIGN_H)
+  love.graphics.setFont(font_big)
+  love.graphics.setColor(1, 0.45, 0.55, 1)
+  love.graphics.printf("APPLE  SHOP", 0, 110, DESIGN_W, "center")
+  -- balance
+  love.graphics.setFont(font_med)
+  love.graphics.setColor(1, 0.85, 0.95, 1)
+  love.graphics.printf(string.format("you have  %d  apples", Save.state.apples or 0),
+                       0, 220, DESIGN_W, "center")
+  -- items
+  love.graphics.setFont(font_small)
+  for i, item in ipairs(SHOP_ITEMS) do
+    local y = 320 + (i - 1) * 86
+    local owned = Save.state.upgrades[item.key]
+    local affordable = (Save.state.apples or 0) >= item.cost
+    local sel = (i == shop_idx)
+    -- background card
+    if sel then
+      for g = 4, 1, -1 do
+        love.graphics.setColor(1, 0.45, 0.55, 0.04)
+        love.graphics.rectangle("fill", 380 - g*4, y - 8 - g*4, 1160 + g*8, 70 + g*8, 16, 16)
+      end
+      love.graphics.setColor(1, 1, 1, 0.85)
+      love.graphics.rectangle("line", 380, y - 8, 1160, 70, 12, 12)
+    else
+      love.graphics.setColor(1, 1, 1, 0.10)
+      love.graphics.rectangle("line", 380, y - 8, 1160, 70, 12, 12)
+    end
+    -- title + desc
+    love.graphics.setFont(font_med)
+    if owned then love.graphics.setColor(0.6, 1.0, 0.6, 1)
+    elseif affordable then love.graphics.setColor(1, 1, 1, 1)
+    else love.graphics.setColor(1, 1, 1, 0.45) end
+    love.graphics.print(item.title, 410, y - 4)
+    love.graphics.setFont(font_small)
+    love.graphics.setColor(1, 1, 1, 0.65)
+    love.graphics.print(item.desc, 410, y + 32)
+    -- cost / status
+    love.graphics.setFont(font_med)
+    if owned then
+      love.graphics.setColor(0.6, 1.0, 0.6, 1)
+      love.graphics.printf("OWNED", 1340, y - 4, 200, "right")
+    else
+      if affordable then love.graphics.setColor(1, 0.85, 0.55, 1)
+      else love.graphics.setColor(1, 1, 1, 0.45) end
+      love.graphics.printf(tostring(item.cost), 1300, y - 4, 220, "right")
+      love.graphics.setColor(1, 0.30, 0.45, affordable and 1 or 0.5)
+      love.graphics.circle("fill", 1530, y + 12, 11)
+      love.graphics.setColor(1, 1, 1, 0.85)
+      love.graphics.circle("fill", 1527, y + 9, 3)
+    end
+  end
+  -- footer
+  love.graphics.setFont(font_small)
+  love.graphics.setColor(1, 1, 1, 0.7)
+  love.graphics.printf("UP / DOWN  pick     ENTER  buy     ESC / B  back",
+                       0, DESIGN_H - 70, DESIGN_W, "center")
+end
+
 local function drawWin()
   love.graphics.setColor(0,0,0,0.55)
   love.graphics.rectangle("fill", 0, 0, DESIGN_W, DESIGN_H)
@@ -819,6 +958,7 @@ function love.draw()
   else
     drawSilhouetteWithGlow(audio_t)
     Net.draw()
+    Apples.draw()
     Obstacles.drawAll(accent)
     if player then player:draw(playerColor()) end
     drawHUD()
@@ -828,6 +968,7 @@ function love.draw()
     if state == "dying"    then drawOverScreen()    end
     if state == "reviving" then drawNotOverScreen() end
     if state == "win"      then drawWin()           end
+    if state == "shop"     then drawShop()          end
   end
   love.graphics.setCanvas()
   love.graphics.pop()
