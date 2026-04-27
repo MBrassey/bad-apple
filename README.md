@@ -2,15 +2,22 @@
 
 A bullet-hell dodge game played on top of the original Bad Apple shadow-art video. Built in LÖVE2D 11.5 for [games.brassey.io](https://games.brassey.io).
 
-The silhouette is decorative atmosphere — only spawned obstacles deal damage. Bullets, beams, waves, rings, spinners and chasers spawn on real beat / kick / snare / hat events extracted from the audio. Their warn windows resolve **on** the beat, so the music *is* the pattern.
+The silhouette is real terrain — its edge is rendered as a bright, always-visible accent outline so the danger zone is unambiguous. Brushing through is fine; *lingering* inside it for ~0.85 s deals damage. Bullets, beams, waves, rings, spinners and chasers spawn on real beat / kick / snare / hat events extracted from the audio, with their warn windows resolving **on** the beat.
 
-The loop:
+![gameplay screenshot](assets/screenshots/gameplay.png)
+
+The flow:
 
 ```
-character room  →  play song  →  collect apples  →  shop  →  play again
-                       ↑                                       ↓
-                       └────────────────  unlocks  ───────────┘
+START  →  LOBBY (hub)
+              │
+              │  customise your square in-place while peers walk around you
+              │
+              ▼
+       glowing GATE  →  level (the song)  →  back to LOBBY (with new unlocks)
 ```
+
+![menu screenshot](assets/screenshots/menu.png)
 
 ## Run
 
@@ -24,32 +31,46 @@ Targets LÖVE 11.5 / Lua 5.1.
 
 | Key | Where | Action |
 | --- | --- | --- |
-| **ENTER** / **SPACE** | menu | enter the character room |
-| **ENTER** / **SPACE** | character | begin the song |
-| **WASD** / **arrows** | play, lobby | move |
-| **SPACE** / **SHIFT** | play, lobby | dash (i-frames + buffered while on cooldown) |
-| **←** / **→** | character | pick colour (skips locked) |
-| **↑** / **↓** | character, shop | aura / shop item |
-| **B** | menu, character, dead, win | apple shop |
-| **M** | menu, character | enter the cyber lobby |
-| **L** | menu, character, win | toggle replay-on-win |
-| **−** / **+** | menu | volume |
-| **C** | menu | continue from last checkpoint |
+| **ENTER** / **SPACE** | menu | START — drop into the lobby |
+| **WASD** / **arrows** | lobby, play | move |
+| **SPACE** / **SHIFT** | lobby, play | dash (i-frames + buffered while on cooldown) |
+| **Q** / **E** | lobby | cycle colour (skips locked) |
+| **Z** / **X** | lobby | cycle aura (skips locked) |
+| walk into **GATE** | lobby | begin the song |
 | **R** / **ENTER** | dying, dead | revive / retry |
 | **N** | dead | new run from start |
 | **P** / **ESC** | play | pause |
 | **Q** | paused | back to menu |
 | **ESC** | most | up one level |
 
+## State machine
+
+```
+boot → loading → menu → lobby → play → (paused | dying → reviving → play | dead | win) → lobby
+```
+
+The lobby is the central hub — the four HUD panels show your handle, customisations, and profile while the centre of the screen is a roam-able play space. Walking into the glowing gate on the right transitions to the level. Win or quit drops you back into the lobby.
+
+## Lobby (the hub)
+
+A sophisticated chrome surrounds a central play box where you walk around as your square. Other connected players appear in the same play box — their colour, halo width, dash trail and authenticated handle render exactly as theirs do. The HUD has four panels:
+
+- **Top bar** — handle, BAD APPLE banner, completion ring (out of 8), connected peer count, sign-in status.
+- **Left** — *APPEARANCE*: 12-colour swatch grid (locked entries show a padlock icon), aura list (4 entries with their unlock thresholds inline).
+- **Right** — *PROFILE*: levels cleared, runs, deaths, hits taken, best time, latest unlock, level intro copy.
+- **Bottom** — control hints.
+
+The glowing gate on the right edge of the play box is the only entry into the level: walk into it. Position broadcasts at 4 Hz over `[[LOVEWEB_NET]]send pos {x,y,hp,d,c,u}`.
+
 ## Pipeline
 
 1. Source video downloaded to `badapple_src.mp4` (gitignored, ~7 MB).
-2. `ffmpeg` extracts the soundtrack to `assets/badapple.ogg`.
-3. `ffmpeg` packs frames into 103 monochrome 1-bit spritesheets at 240 × 180 packed 8 × 8 (`assets/sheets/sheet_NNN.png`).
-4. `ffmpeg` writes a separate 80 × 60 1-bit silhouette stream to `assets/collision.bin` (kept for future obstacle alignment; silhouette no longer hurts the player).
+2. `ffmpeg` extracts the soundtrack to `assets/badapple.ogg` (libvorbis q=5).
+3. `ffmpeg` packs frames into 103 monochrome 1-bit spritesheets at 240×180 packed 8×8 (`assets/sheets/sheet_NNN.png`).
+4. `ffmpeg` writes a separate 80×60 1-bit silhouette stream to `assets/collision.bin` — used by the **silhouette hover hazard** to know whether the player is currently inside the shadow.
 5. `tools/analyze_audio.py` decodes the OGG, runs band-split spectral-flux onset detection, estimates BPM by autocorrelation, and writes 4 362 events to `assets/beats.txt`.
 
-Total runtime asset size: ~17 MB. Sheets are streamed lazily at runtime (4-entry LRU cache), so peak GPU RAM stays bounded regardless of song length.
+Total runtime asset size: ~17 MB. Sheets are streamed lazily at runtime (4-entry LRU cache), so peak GPU RAM stays bounded.
 
 ## Architecture
 
@@ -62,50 +83,57 @@ bad-apple/
   assets/
     badapple.ogg                 extracted soundtrack
     beats.txt                    # bpm + (type, time, strength) events
-    collision.bin                6572 frames × 80 × 60 1-bit silhouette mask
-    sheets/sheet_001..103.png    monochrome spritesheets, 8 × 8 frames each
+    collision.bin                6572 frames × 80×60 1-bit silhouette mask
+    sheets/sheet_001..103.png    monochrome spritesheets, 8×8 frames each
+    screenshots/                 README art (gameplay.png, menu.png)
   src/
     video.lua                    lazy spritesheet cache + LRU eviction
     collision.lua                1-bit mask sampler + box-hit helper
     beats.lua                    cursor-based pre-roll event firer (+ proximity)
-    player.lua                   3 × 3 fragment body, sparkle trail, dash buffer
+    player.lua                   3×3 fragment body, sparkle trail, dash buffer
     obstacles.lua                bullet / burst / beam / wave / ring / spinner / chaser
     director.lua                 song-aligned intensity ramp + deterministic gate
     glow.lua                     two-pass separable Gaussian bloom
-    mosaic.lua                   silhouette colorizer shader (pink/cyan/violet/amber)
+    mosaic.lua                   silhouette colorizer with 4-tap edge outline
     save.lua                     atomic save (tmp + swap)
-    multiplayer.lua              [[LOVEWEB_NET]] ghost positions / dashes / colour
-    lobby.lua                    cyber-grid floor shader + lobby state draw
-    character.lua                wardrobe / preview / unlocks display
-    apples.lua                   collectible currency w/ optional magnet
+    multiplayer.lua              [[LOVEWEB_NET]] ghost positions / colour / dashes
+    lobby.lua                    HUD panels, grid floor, glowing gate
     sfx.lua                      synthesised dash / hit / tick / revive / death
   lib/json.lua                   rxi/json.lua (MIT)
   tools/analyze_audio.py         band-split onset + BPM autocorrelation
 ```
 
-## State machine
+## Silhouette as terrain
 
-`boot → loading → menu → character → play → (paused | dying → reviving → play | dead | win) → menu`
+`src/mosaic.lua` colours the silhouette video each frame:
 
-Side states reachable from menu / character / dead / win:
+- backdrop and silhouette body are both rendered very dark — the silhouette body is *darker* than the backdrop so the player and obstacles always pop.
+- a 4-tap luminance gradient inside the shader detects the silhouette boundary and lights it with the current accent palette colour. The outline is always visible — you always know exactly where the danger ends.
+- a per-run hue offset rotates the palette through pink / cyan / violet / amber so each play looks slightly different.
 
-- `shop` — pauses the world entirely (audio paused, no beats fire, no obstacles update)
-- `lobby` — dedicated cyber-grid scene, separate from the song
+The hazard itself is a **stay timer**, not a collision flag:
+
+- if the player's hit-circle overlaps a bright silhouette pixel, `sil_stay_t` accumulates `dt`.
+- if it doesn't, `sil_stay_t` decays at 3× speed.
+- crossing the threshold (0.85 s of cumulative stay) calls `player:hit()` and resets the timer.
+- a red pulsing ring around the player and a HOVER meter under the hearts ramp up as the timer climbs, so you always have a fair warning before the hit lands.
+
+Brush through the silhouette and you're fine. Stand inside it and the song punishes you.
 
 ## Player
 
-- 3 × 3 grid of small rounded fragments + a bright central core. Each hit detaches one fragment (favouring the side opposite your input direction) and fires it off as a chunky shard plus a few smaller dust pieces. The body shrinks because it has fewer fragments, not because of a generic scale-down.
-- Sparkle trail of small glowing rounded squares spawns behind the player when moving; dashing triples the spawn rate (or 6 × with the *Bigger Sparkle Trail* upgrade).
-- Tight fixed hit-circle around the centre core — only direct contact with an obstacle's coloured hot zone hurts.
-- Dash buffer: pressing dash during cooldown queues the dash and fires it as soon as the cooldown clears. `DASH_COOLDOWN 0.52` exceeds `IFRAME_DASH 0.40` with margin so dash spam can't grant permanent invulnerability.
-- Hit-flash, knockback, screen shake, hit-stop (60 ms dt freeze for impact weight), red screen-edge tint on damage / cyan tint on close-call dodge.
+- 3×3 grid of small rounded fragments + a bright central core. Each hit detaches one fragment (favouring the side opposite your input direction) and fires it off as a chunky shard plus a few smaller dust pieces.
+- Sparkle trail of small glowing rounded squares spawns behind the player when moving; dashing triples the spawn rate.
+- Tight fixed hit-circle around the centre core — only direct contact with an obstacle's coloured hot zone (or extended silhouette stay) hurts.
+- Dash buffer queues a press during cooldown. `DASH_COOLDOWN 0.52` exceeds `IFRAME_DASH 0.40` with margin so dash spam can't grant permanent invulnerability.
+- Hit-flash, knockback, screen shake, 60 ms hit-stop on damage, red screen-edge tint on damage / cyan tint on close-call dodge.
 
 ## Obstacles
 
 Every obstacle uses the same three-layer language so it reads at a glance:
 
 1. soft outer glow halos (large, low alpha) — decorative, never hurt
-2. bright pulsing white border ring — the visible danger edge (throbs at ~7 – 8 Hz, tied to `audio_t`)
+2. bright pulsing white border ring — the visible danger edge (throbs at ~7-8 Hz, tied to `audio_t`)
 3. filled rounded core in the accent colour — the actual hit zone
 
 | Type | Shape | Telegraph | Hot |
@@ -127,9 +155,7 @@ intro (0-13)  verse 1 (13-46)  chorus 1 (46-78)  verse 2 (78-111)
 chorus 2 (111-144)  bridge (144-177, cools off)  final chorus (177-210)  outro
 ```
 
-The first 6 s lifts the floor to 0.05 so the player always sees one bullet early — the music's intro is otherwise too quiet to teach the loop. Climax peaks at 0.40.
-
-`spawnGate(type, intensity, base)` is **deterministic** — accept every Nth event of a type at a rate scaled by intensity. No random coin-flip swings.
+The first 6 s lifts the floor to 0.05 so the player always sees one bullet early. Climax peaks at 0.40. `spawnGate(type, intensity, base)` is **deterministic** — accept every Nth event of a type at a rate scaled by intensity. No random coin-flip swings.
 
 ## Beat sync
 
@@ -137,36 +163,19 @@ The first 6 s lifts the floor to 0.05 so the player always sees one bullet early
 
 ## Saves
 
-`save.json` (atomic write: tmp file + swap) tracks:
+`save.json` (atomic write: tmp file + swap, cloud-synced via `love.filesystem`) tracks:
 
-- `player_color` — selected palette index
-- `aura_id` — selected aura cosmetic
-- `upgrades` — owned shop items
-- `apples` — currency balance
+- `player_color`, `aura_id` — selected cosmetics
 - `completions` — number of song clears (drives unlocks)
-- `last_unlock` — string surfaced on the win screen
+- `last_unlock` — string surfaced on the win screen and the lobby right panel
 - `last_checkpoint`, `best_time`, `runs`, `deaths`, `hits_taken`, `dashes`
 - `volume`, `completed`
 
-Files in `love.filesystem` are cloud-synced by the portal so the character follows the user across sessions and devices. Missing keys are filled with sensible defaults at boot, so older saves keep working when new fields land.
-
-## Apples + Shop
-
-Glowing red apples spawn during play (every 3.2 – 5.5 s by intensity, 30 % faster with *Orchard's Bounty*), drift gently, and pop on contact for `+1 apple`. Shop items:
-
-| Cost | Item | Effect |
-| --- | --- | --- |
-| 8 | Bigger Sparkle Trail | doubles trail density |
-| 10 | Brighter Aura | wider glow halo |
-| 15 | Quicker Dash | 25 % shorter cooldown |
-| 18 | Apple Magnet | apples drift toward you |
-| 25 | Extra Heart | +1 HP fragment |
-| 20 | Greater Magnet | doubles magnet pull range |
-| 30 | Second Wind | additional auto-revive marker |
-| 35 | Sharper Score | +25 % score on every run |
-| 40 | Orchard's Bounty | apples spawn 30 % more often |
+Missing keys are filled with sensible defaults at boot, so older saves keep working when new fields land.
 
 ## Unlocks (per song completion)
+
+Customisations unlock by clearing the level — there is no currency.
 
 | Completions | Unlock |
 | --- | --- |
@@ -179,11 +188,7 @@ Glowing red apples spawn during play (every 3.2 – 5.5 s by intensity, 30 % fas
 | 7 | colour: phantom |
 | 8 | colour: gold |
 
-Locked palette swatches show a padlock icon and the number of wins remaining; the win screen announces each new unlock as it lands.
-
-## Cyber lobby
-
-Press **M** from the menu (or character room) to enter the lobby. Dedicated scene with a neon grid-floor shader, a soft radial pool of accent light tracking your position, and a vertical scan-band sweep. The portal-authenticated handle floats above your square. Other connected players appear with their own colour, halo width and sparkle trail; their handles render above their squares. Position broadcasts at 4 Hz; latency is ~750 ms (it's presence + movement, not 60 Hz twitch).
+Locked palette swatches show a padlock icon and the number of wins remaining; the win screen and lobby announce each new unlock as it lands.
 
 ## Achievements
 
@@ -211,15 +216,24 @@ Press **M** from the menu (or character room) to enter the lobby. Dedicated scen
 
 Magic-print verbs emitted via `[[LOVEWEB_FX]]`:
 
-- `flash <hex> <ms>` on hit / revive / win
+- `flash <hex> <ms>` on hit / revive / win / gate entry
 - `shake <intensity> <ms>` on hit / death / heavy kicks
-- `mood <hex> <0..1>` drifts at ~3 Hz with the song accent
-- `ripple <hex> <x01> <y01> <ms>` on dash + revive
+- `mood <hex> <0..1>` drifts at ~3 Hz with the song accent (even in the lobby)
+- `ripple <hex> <x01> <y01> <ms>` on dash + revive + gate entry
 - `shatter <intensity> <ms>` on death + revive transitions
 
 ## Death / revive
 
-Dying plays `IT'S OVER` for 1.6 s with the body shattering, music ducked to 20 % volume, then auto-transitions through a chromatic-glitch shader to `IT'S NOT OVER` for 1.4 s, restores volume, replays the death stinger as a revive swell, and resumes the song from `death_audio_t − 0.6 s` with full HP and brief invulnerability. Press **R** / **ENTER** during *dying* to skip straight to the revive. Hard `dead` state is reachable via N / R from the dead screen → new run / retry from checkpoint.
+Dying plays "IT'S OVER" for 1.6 s with the body shattering, music ducked to 20 % volume, then auto-transitions through a chromatic-glitch shader to "IT'S NOT OVER" for 1.4 s, restores volume, replays the death stinger as a revive swell, and resumes the song from `death_audio_t − 0.6 s` with full HP and brief invulnerability. **R** / **ENTER** during *dying* skips straight to the revive.
+
+## Debug knobs
+
+```
+BADAPPLE_AUTORUN=<seconds>            skip the menu and start at this song time
+BADAPPLE_QUIT_AT=<wall_seconds>       quit after this many seconds (smoke tests)
+BADAPPLE_SCREENSHOT_AT=<wall_seconds> capture a frame and save to BADAPPLE_SCREENSHOT_PATH
+BADAPPLE_SCREENSHOT_PATH=<filename>   default 'screenshot.png' (lands in love save dir)
+```
 
 ## License
 

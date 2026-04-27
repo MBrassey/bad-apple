@@ -114,6 +114,13 @@ local death_pos = { x = 0, y = 0 }
 local death_audio_t = 0
 local _last_mood_t = nil
 local revives_remaining = 1
+-- Silhouette hover hazard: the player can brush through the silhouette
+-- without taking damage, but lingering inside it accumulates this timer.
+-- When sil_stay_t passes SIL_STAY_THRESHOLD the player takes a hit and
+-- the timer resets. Outside the silhouette the timer decays quickly.
+local sil_stay_t = 0
+local SIL_STAY_THRESHOLD = 0.85
+local SIL_STAY_DECAY     = 3.0
 
 -- shop state
 local shop_idx = 1
@@ -219,17 +226,12 @@ local function newRun(fromTime)
   combo = 0
   score = 0
   victory_shown = false
+  sil_stay_t = 0
   -- per-run variation: shuffle the random seed and the mosaic hue offset so
   -- every run looks and plays slightly different even though it's the same
   -- song / same beat events.
   love.math.setRandomSeed(os.time() + Save.state.runs * 9973)
   Mosaic.setHueOffset(love.math.random())
-  Apples.reset()
-  Apples.player_ref = player
-  Apples.magnet = Save.state.upgrades and Save.state.upgrades.magnet or false
-  Apples.magnet2 = Save.state.upgrades and Save.state.upgrades.magnet2 or false
-  Apples.spawn_boost = Save.state.upgrades and Save.state.upgrades.apple_rate or false
-  -- second-wind upgrade: two revives per run instead of one
   revives_remaining = (Save.state.upgrades and Save.state.upgrades.revive2) and 2 or 1
   if Save.state.upgrades and Save.state.upgrades.dash then
     player.dash_cooldown_mul = 0.75
@@ -264,8 +266,11 @@ local function revive()
   fxFlash("#ffffff", 260)
 end
 
-local DEBUG_AUTORUN = (os.getenv and os.getenv("BADAPPLE_AUTORUN")) or nil
-local DEBUG_QUIT_AT = tonumber((os.getenv and os.getenv("BADAPPLE_QUIT_AT")) or "")
+local DEBUG_AUTORUN     = (os.getenv and os.getenv("BADAPPLE_AUTORUN")) or nil
+local DEBUG_QUIT_AT     = tonumber((os.getenv and os.getenv("BADAPPLE_QUIT_AT")) or "")
+local DEBUG_SCREENSHOT  = tonumber((os.getenv and os.getenv("BADAPPLE_SCREENSHOT_AT")) or "")
+local DEBUG_SHOT_PATH   = (os.getenv and os.getenv("BADAPPLE_SCREENSHOT_PATH")) or "screenshot.png"
+local DEBUG_SHOT_DONE   = false
 local _wall_t0
 
 function love.load()
@@ -416,7 +421,41 @@ function love.keypressed(key)
   elseif state == "lobby" then
     if key == "space" or key == "lshift" or key == "rshift" then
       if player and player:tryDash() then SFX.play(snd_dash) end
-    elseif key == "escape" or key == "m" then
+    elseif key == "q" then
+      SFX.play(snd_tick)
+      local n, i = #PLAYER_PALETTE, Save.state.player_color or 1
+      for _ = 1, n do
+        i = ((i - 2) % n) + 1
+        if paletteUnlocked(i) then break end
+      end
+      Save.state.player_color = i; Save.write()
+    elseif key == "e" then
+      SFX.play(snd_tick)
+      local n, i = #PLAYER_PALETTE, Save.state.player_color or 1
+      for _ = 1, n do
+        i = (i % n) + 1
+        if paletteUnlocked(i) then break end
+      end
+      Save.state.player_color = i; Save.write()
+    elseif key == "z" then
+      SFX.play(snd_tick)
+      local n, i = #AURAS, Save.state.aura_id or 1
+      for _ = 1, n do
+        i = ((i - 2) % n) + 1
+        if auraUnlocked(i) then break end
+      end
+      Save.state.aura_id = i; Save.write()
+      if player then player.aura_id = (AURAS[i] and AURAS[i].id) or "default" end
+    elseif key == "x" then
+      SFX.play(snd_tick)
+      local n, i = #AURAS, Save.state.aura_id or 1
+      for _ = 1, n do
+        i = (i % n) + 1
+        if auraUnlocked(i) then break end
+      end
+      Save.state.aura_id = i; Save.write()
+      if player then player.aura_id = (AURAS[i] and AURAS[i].id) or "default" end
+    elseif key == "escape" then
       Net.leave()
       SFX.play(snd_tick)
       state = "menu"
@@ -572,6 +611,14 @@ local function update_lobby(dt)
     fxMood(colorHex(accent[1], accent[2], accent[3]), 0.25)
     _last_mood_t = love.timer.getTime()
   end
+  -- the gate is the entry into the level: walking through it starts the song
+  if Lobby.shouldEnterLevel() then
+    SFX.play(snd_revive)
+    fxFlash("#ffffff", 280)
+    fxRipple("#ffffff", 0.5, 0.5, 600)
+    Net.leave()
+    newRun(0)
+  end
 end
 
 local function update_dying(dt)
@@ -638,25 +685,44 @@ local function update_play(dt)
     Obstacles.updateAll(dt, audio_t)
     player:update(dt)
     Video.update(audio_t, 0.6)         -- prefetch upcoming sheet
-    Apples.update(dt, Director.intensity(audio_t))
-    do
-      local n = Apples.collect(player)
-      if n > 0 then
-        Save.state.apples = (Save.state.apples or 0) + n
-        SFX.play(snd_tick)
-        Save.write()
-      end
-    end
 
     Net.broadcast(player, dt, playerColor(), Save.state.upgrades)
 
     detectCloseCall(dt)
 
-    -- collision: only spawned obstacles deal damage
+    -- silhouette hover hazard: only hurts if the player lingers
+    do
+      local in_sil = false
+      if sil_scale > 0 then
+        local r = player.size * 0.22
+        local vx0 = (player.x - r - sil_dx) / sil_scale
+        local vy0 = (player.y - r - sil_dy) / sil_scale
+        local vx1 = (player.x + r - sil_dx) / sil_scale
+        local vy1 = (player.y + r - sil_dy) / sil_scale
+        if vx1 >= 0 and vy1 >= 0 and vx0 <= 480 and vy0 <= 360 then
+          if vx0 < 0 then vx0 = 0 end
+          if vy0 < 0 then vy0 = 0 end
+          if vx1 > 480 then vx1 = 480 end
+          if vy1 > 360 then vy1 = 360 end
+          local frame = Video.frameAt(audio_t)
+          in_sil = Collision.boxHits(frame, vx0, vy0, vx1, vy1)
+        end
+      end
+      if in_sil and not player:invincible() then
+        sil_stay_t = sil_stay_t + dt
+      else
+        sil_stay_t = math.max(0, sil_stay_t - dt * SIL_STAY_DECAY)
+      end
+    end
+
+    -- collision: spawned obstacles + lingering-in-silhouette
     local got_hit = false
     if not player:invincible() then
       local h = Obstacles.checkHit(player.x, player.y, player.size * 0.22)
       if h and player:hit() then got_hit = "obstacle" end
+      if not got_hit and sil_stay_t > SIL_STAY_THRESHOLD then
+        if player:hit() then got_hit = "silhouette"; sil_stay_t = 0 end
+      end
     end
 
     if got_hit then
@@ -739,6 +805,11 @@ end
 function love.update(dt)
   if DEBUG_QUIT_AT and (love.timer.getTime() - _wall_t0) > DEBUG_QUIT_AT then
     love.event.quit()
+  end
+  if DEBUG_SCREENSHOT and not DEBUG_SHOT_DONE
+     and (love.timer.getTime() - _wall_t0) > DEBUG_SCREENSHOT then
+    DEBUG_SHOT_DONE = true
+    love.graphics.captureScreenshot(DEBUG_SHOT_PATH)
   end
   if hit_stop_t > 0 then
     hit_stop_t = math.max(0, hit_stop_t - love.timer.getDelta())
@@ -835,14 +906,17 @@ local function drawHUD()
     love.graphics.setColor(accent[1], accent[2], accent[3], 0.95)
     love.graphics.print(string.format("x%d", math.floor(combo)), 240, DESIGN_H - 70)
   end
-  -- glowy apple counter
-  local ax, ay = 40, 88
-  love.graphics.setColor(1, 0.30, 0.45, 1)
-  love.graphics.circle("fill", ax + 13, ay + 14, 10)
-  love.graphics.setColor(1, 1, 1, 0.85)
-  love.graphics.circle("fill", ax + 9, ay + 10, 3)
-  love.graphics.setColor(1, 1, 1, 0.95)
-  love.graphics.print(string.format("%d", Save.state.apples or 0), ax + 32, ay)
+  -- silhouette-stay danger meter (only visible while approaching threshold)
+  if sil_stay_t > 0.05 then
+    local mx, my = 40, 88
+    love.graphics.setColor(1, 1, 1, 0.20)
+    love.graphics.rectangle("fill", mx, my, 160, 10, 3, 3)
+    local k = math.min(1, sil_stay_t / SIL_STAY_THRESHOLD)
+    love.graphics.setColor(1.0, 0.30, 0.40, 0.95)
+    love.graphics.rectangle("fill", mx, my, 160 * k, 10, 3, 3)
+    love.graphics.setColor(1, 1, 1, 0.7)
+    love.graphics.print("HOVER", mx, my + 14)
+  end
 
   -- lobby presence
   if Net.enabled then
@@ -891,11 +965,12 @@ local function drawEdgeTints()
 end
 
 local function drawMenu()
-  love.graphics.clear(0.03, 0.01, 0.05, 1)
-  -- preview the silhouette midway
-  local previewT = (love.timer.getTime() * 0.5) % math.max(1, Video.duration())
-  Video.draw(previewT, DESIGN_W*0.5 - 720, DESIGN_H*0.5 - 540, 1440, 1080, 0.6, 0.4, 0.7, 0.55)
-  love.graphics.setColor(0,0,0,0.55)
+  love.graphics.clear(0.020, 0.012, 0.040, 1)
+  -- preview the silhouette midway, very faintly behind everything
+  local previewT = (love.timer.getTime() * 0.4) % math.max(1, Video.duration())
+  Video.draw(previewT, DESIGN_W*0.5 - 720, DESIGN_H*0.5 - 540, 1440, 1080,
+             accent[1] * 0.18, accent[2] * 0.14, accent[3] * 0.22, 0.45)
+  love.graphics.setColor(0, 0, 0, 0.55)
   love.graphics.rectangle("fill", 0, 0, DESIGN_W, DESIGN_H)
   love.graphics.setFont(font_big)
   love.graphics.setColor(1, 0.85, 0.95, 1)
@@ -907,34 +982,40 @@ local function drawMenu()
   love.graphics.setColor(1, 1, 1, 0.65)
   love.graphics.printf("dodge the shadow.  consume the apple.",
                        0, 410, DESIGN_W, "center")
+  -- single START call to action -- pulsing illuminated button
+  local bw, bh = 360, 100
+  local bx = DESIGN_W * 0.5 - bw * 0.5
+  local by = 580
+  local pulse = 0.55 + 0.45 * math.abs(math.sin(love.timer.getTime() * 3.0))
+  for i = 6, 1, -1 do
+    love.graphics.setColor(accent[1], accent[2], accent[3], 0.05 * pulse)
+    love.graphics.rectangle("fill", bx - i * 5, by - i * 5,
+                            bw + i * 10, bh + i * 10,
+                            18 + i * 2, 18 + i * 2)
+  end
+  love.graphics.setColor(accent[1], accent[2], accent[3], 0.35 * pulse)
+  love.graphics.rectangle("fill", bx, by, bw, bh, 16, 16)
+  love.graphics.setColor(1, 1, 1, pulse)
+  love.graphics.setLineWidth(4)
+  love.graphics.rectangle("line", bx, by, bw, bh, 16, 16)
+  love.graphics.setLineWidth(1)
+  love.graphics.setFont(font_med)
+  love.graphics.setColor(1, 1, 1, 1)
+  love.graphics.printf("START", bx, by + 24, bw, "center")
   love.graphics.setFont(font_small)
-  love.graphics.setColor(1,1,1,0.85)
-  local lines = {
-    "ENTER  / SPACE   enter your character room",
-    ((Save.state.last_checkpoint or 0) > 5)
-      and string.format("C   continue from %d:%02d", math.floor(Save.state.last_checkpoint/60), Save.state.last_checkpoint%60)
-      or  "(checkpoints save every 12s during play)",
-    "B   apple shop",
-    string.format("M   cyber lobby   [%s]", Net.enabled and "ON" or "OFF"),
-    string.format("L   replay-on-win  [%s]", LOOP and "ON" or "OFF"),
-    string.format("- / +   volume  [%d%%]", math.floor((Save.state.volume or 0.85) * 100)),
-    "ESC  quit",
-  }
-  for i, line in ipairs(lines) do
-    love.graphics.printf(line, 0, 540 + (i-1) * 32, DESIGN_W, "center")
-  end
+  love.graphics.setColor(1, 1, 1, 0.55)
+  love.graphics.printf("press ENTER or SPACE", bx, by + bh + 14, bw, "center")
+  -- bottom bar: lifetime stats so the menu still feels rooted in your profile
   if Save.state.runs and Save.state.runs > 0 then
-    love.graphics.setColor(1,1,1,0.55)
+    love.graphics.setColor(1, 1, 1, 0.50)
     love.graphics.printf(
-      string.format("runs %d   deaths %d   hits %d   completed %s   best-time %s",
-        Save.state.runs or 0, Save.state.deaths or 0, Save.state.hits_taken or 0,
-        Save.state.completed and "yes" or "no",
+      string.format("levels cleared %d   runs %d   best-time %s",
+        Save.state.completions or 0, Save.state.runs or 0,
         Save.state.best_time and string.format("%d:%02d", math.floor((Save.state.best_time or 0)/60), (Save.state.best_time or 0)%60) or "0:00"),
-      0, DESIGN_H - 130, DESIGN_W, "center")
+      0, DESIGN_H - 90, DESIGN_W, "center")
   end
-  love.graphics.setColor(1,1,1,0.4)
-  love.graphics.printf("WASD/arrows move    SPACE/SHIFT dash    silhouette is deadly",
-    0, DESIGN_H - 80, DESIGN_W, "center")
+  love.graphics.setColor(1, 1, 1, 0.30)
+  love.graphics.printf("ESC  quit", 0, DESIGN_H - 50, DESIGN_W, "center")
 end
 
 local function drawPaused()
@@ -1127,18 +1208,47 @@ function love.draw()
                    AURAS, Save.state.aura_id or 1,
                    auraUnlocked)
   elseif state == "lobby" then
-    local handle = (Net.identity and Net.identity.handle) or "you"
-    if Net.identity and not Net.identity.signedIn then handle = "guest" end
-    Lobby.draw(playerColor(), Net.peerCount and Net.peerCount() or 0,
-               "BAD APPLE  //  CYBER LOBBY", handle)
+    local handle = (Net.identity and Net.identity.handle) or "guest"
+    local signed = Net.identity and Net.identity.signedIn or false
+    local ctx = {
+      handle = handle,
+      signed_in = signed,
+      peers = Net.peerCount and Net.peerCount() or 0,
+      completions = Save.state.completions or 0,
+      runs = Save.state.runs, deaths = Save.state.deaths,
+      hits = Save.state.hits_taken, best_time = Save.state.best_time,
+      last_unlock = Save.state.last_unlock,
+      palette = PLAYER_PALETTE, color_idx = Save.state.player_color or 1,
+      paletteUnlocked = paletteUnlocked,
+      auras = AURAS, aura_idx = Save.state.aura_id or 1,
+      auraUnlocked = auraUnlocked,
+    }
+    Lobby.draw(playerColor(), ctx,
+               { huge = font_huge, big = font_big, med = font_med,
+                 small = font_small, hud = font_hud })
     Net.draw()
     if player then player:draw(playerColor()) end
   else
     drawSilhouetteWithGlow(audio_t)
     Net.draw()
-    Apples.draw()
     Obstacles.drawAll(accent)
-    if player then player:draw(playerColor()) end
+    if player then
+      player:draw(playerColor())
+      -- silhouette-stay warning ring: pulses red as the timer climbs
+      if sil_stay_t > 0.30 then
+        local k = math.min(1, sil_stay_t / SIL_STAY_THRESHOLD)
+        local pulse = 0.5 + 0.5 * math.abs(math.sin(love.timer.getTime() * (10 + 18 * k)))
+        for i = 4, 1, -1 do
+          love.graphics.setColor(1.0, 0.20, 0.30, 0.18 * k * pulse)
+          love.graphics.circle("line", player.x, player.y,
+                               player.size * 0.55 + i * 6)
+        end
+        love.graphics.setColor(1.0, 0.30, 0.40, 0.85 * k * pulse)
+        love.graphics.setLineWidth(3)
+        love.graphics.circle("line", player.x, player.y, player.size * 0.55)
+        love.graphics.setLineWidth(1)
+      end
+    end
     drawHUD()
     drawEdgeTints()
     drawScreenFlash()
