@@ -41,7 +41,6 @@ M._t = 0
 M.hitrects = {}
 
 local floor_code = [[
-extern number time_;
 extern vec2 player_;
 extern vec3 accent_;
 
@@ -351,7 +350,6 @@ end
 
 local function drawFloor(accent)
   if not M.shader then return end
-  M.shader:send("time_", M._t)
   if M.player then
     M.shader:send("player_", { (M.player.x - PLAY.x) / PLAY.w,
                                (M.player.y - PLAY.y) / PLAY.h })

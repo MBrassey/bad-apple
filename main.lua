@@ -323,10 +323,12 @@ local function revive()
 end
 
 local DEBUG_AUTORUN     = (os.getenv and os.getenv("BADAPPLE_AUTORUN")) or nil
+local DEBUG_AUTOLOBBY   = (os.getenv and os.getenv("BADAPPLE_AUTOLOBBY")) or nil
 local DEBUG_QUIT_AT     = tonumber((os.getenv and os.getenv("BADAPPLE_QUIT_AT")) or "")
 local DEBUG_SCREENSHOT  = tonumber((os.getenv and os.getenv("BADAPPLE_SCREENSHOT_AT")) or "")
 local DEBUG_SHOT_PATH   = (os.getenv and os.getenv("BADAPPLE_SCREENSHOT_PATH")) or "screenshot.png"
 local DEBUG_SHOT_DONE   = false
+local DEBUG_LOBBY_SENT  = false
 local _wall_t0
 
 function love.load()
@@ -672,6 +674,10 @@ local function update_loading(dt)
   if loadStep() then
     state = "menu"
     if DEBUG_AUTORUN then newRun(tonumber(DEBUG_AUTORUN) or 0) end
+    if DEBUG_AUTOLOBBY and not DEBUG_LOBBY_SENT then
+      DEBUG_LOBBY_SENT = true
+      love.event.push("keypressed", "return")
+    end
   end
 end
 
