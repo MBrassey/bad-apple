@@ -29,22 +29,57 @@ local Character  = require "src.character"
 
 local DESIGN_W, DESIGN_H = 1920, 1080
 
--- Player colour palette. The first 4 are free; the others unlock as you
--- complete the song. Save.state.completions is the gate.
+-- Player colour palette. ALL colours are free from the start -- the player
+-- can pick any. Effects / trails / shapes are what unlock through wins.
 local PLAYER_PALETTE = {
   { name = "neon pink",  rgb = { 1.00, 0.40, 0.72 }, unlock_at = 0 },
   { name = "cyan",       rgb = { 0.30, 0.92, 1.00 }, unlock_at = 0 },
   { name = "violet",     rgb = { 0.80, 0.55, 1.00 }, unlock_at = 0 },
   { name = "amber",      rgb = { 1.00, 0.80, 0.40 }, unlock_at = 0 },
-  { name = "lime",       rgb = { 0.55, 1.00, 0.50 }, unlock_at = 1 },
-  { name = "ember",      rgb = { 1.00, 0.50, 0.35 }, unlock_at = 2 },
-  { name = "sky",        rgb = { 0.55, 0.85, 1.00 }, unlock_at = 3 },
-  { name = "ivory",      rgb = { 0.95, 0.95, 0.95 }, unlock_at = 4 },
-  { name = "void",       rgb = { 0.30, 0.20, 0.55 }, unlock_at = 5 },
-  { name = "blood",      rgb = { 0.90, 0.10, 0.20 }, unlock_at = 6 },
-  { name = "phantom",    rgb = { 0.60, 1.00, 0.85 }, unlock_at = 7 },
-  { name = "gold",       rgb = { 1.00, 0.85, 0.10 }, unlock_at = 8 },
+  { name = "lime",       rgb = { 0.55, 1.00, 0.50 }, unlock_at = 0 },
+  { name = "ember",      rgb = { 1.00, 0.50, 0.35 }, unlock_at = 0 },
+  { name = "sky",        rgb = { 0.55, 0.85, 1.00 }, unlock_at = 0 },
+  { name = "ivory",      rgb = { 0.95, 0.95, 0.95 }, unlock_at = 0 },
+  { name = "void",       rgb = { 0.30, 0.20, 0.55 }, unlock_at = 0 },
+  { name = "blood",      rgb = { 0.90, 0.10, 0.20 }, unlock_at = 0 },
+  { name = "phantom",    rgb = { 0.60, 1.00, 0.85 }, unlock_at = 0 },
+  { name = "gold",       rgb = { 1.00, 0.85, 0.10 }, unlock_at = 0 },
 }
+
+-- Obstacle / accent rotation palette. The world drifts through these as the
+-- song plays, so no single colour dominates the canvas.
+local WORLD_PALETTE = {
+  { 1.00, 0.40, 0.72 },   -- pink
+  { 0.40, 0.92, 1.00 },   -- cyan
+  { 0.80, 0.55, 1.00 },   -- violet
+  { 1.00, 0.80, 0.40 },   -- amber
+  { 0.55, 1.00, 0.50 },   -- lime
+  { 1.00, 0.50, 0.35 },   -- ember
+}
+
+-- Smooth 6-hue cycle over song time -- one full revolution every ~30 s.
+local function worldAccent(t)
+  local n = #WORLD_PALETTE
+  local k = ((t or 0) / 5.0) % n
+  local i = math.floor(k) + 1
+  local j = (i % n) + 1
+  local f = k - math.floor(k)
+  local a, b = WORLD_PALETTE[i], WORLD_PALETTE[j]
+  return {
+    a[1] + (b[1] - a[1]) * f,
+    a[2] + (b[2] - a[2]) * f,
+    a[3] + (b[3] - a[3]) * f,
+  }
+end
+
+-- Pick a colour for a single spawn. Anchors to the current accent but offsets
+-- by a small random hop so successive spawns differ from each other.
+local function spawnColour(t)
+  local n = #WORLD_PALETTE
+  local idx = math.floor(((t or 0) * 0.7 + love.math.random() * n)) % n + 1
+  local p = WORLD_PALETTE[idx]
+  return { p[1], p[2], p[3] }
+end
 
 local function paletteUnlocked(idx)
   local p = PLAYER_PALETTE[idx]
@@ -52,18 +87,40 @@ local function paletteUnlocked(idx)
   return (Save.state.completions or 0) >= (p.unlock_at or 0)
 end
 
--- Auras: extra visual rings you can equip from the character room. Unlock by
--- completing the song. Equipped via Save.state.aura_id (1 = default).
+-- Auras: extra visual rings around the body. Equipped via Save.state.aura_id.
 local AURAS = {
   { id = "default", name = "Default Halo",   unlock_at = 0 },
-  { id = "ring",    name = "Spinning Ring",  unlock_at = 2 },
-  { id = "twin",    name = "Twin Echoes",    unlock_at = 4 },
-  { id = "starlit", name = "Starlit Halo",   unlock_at = 6 },
+  { id = "ring",    name = "Spinning Ring",  unlock_at = 1 },
+  { id = "twin",    name = "Twin Echoes",    unlock_at = 3 },
+  { id = "starlit", name = "Starlit Halo",   unlock_at = 5 },
+}
+
+-- Trail / tracer styles. Equipped via Save.state.trail_id.
+local TRAILS = {
+  { id = "sparkle", name = "Sparkle",        unlock_at = 0 },
+  { id = "comet",   name = "Comet Ribbon",   unlock_at = 2 },
+  { id = "ember",   name = "Ember Tracer",   unlock_at = 4 },
+  { id = "ghost",   name = "Ghost Echoes",   unlock_at = 6 },
+}
+
+-- Body shapes. Equipped via Save.state.shape_id.
+local SHAPES = {
+  { id = "square",  name = "Square",         unlock_at = 0 },
+  { id = "diamond", name = "Diamond",        unlock_at = 2 },
+  { id = "hex",     name = "Hexagon",        unlock_at = 4 },
 }
 
 local function auraUnlocked(idx)
   local a = AURAS[idx]
   if not a then return false end
+  return (Save.state.completions or 0) >= (a.unlock_at or 0)
+end
+local function trailUnlocked(idx)
+  local a = TRAILS[idx]; if not a then return false end
+  return (Save.state.completions or 0) >= (a.unlock_at or 0)
+end
+local function shapeUnlocked(idx)
+  local a = SHAPES[idx]; if not a then return false end
   return (Save.state.completions or 0) >= (a.unlock_at or 0)
 end
 
@@ -233,6 +290,8 @@ local function newRun(fromTime)
   love.math.setRandomSeed(os.time() + Save.state.runs * 9973)
   Mosaic.setHueOffset(love.math.random())
   revives_remaining = (Save.state.upgrades and Save.state.upgrades.revive2) and 2 or 1
+  -- inject a per-spawn colour picker so each obstacle gets a unique hue
+  Director.colourFor = function() return spawnColour(audio_t or 0) end
   if Save.state.upgrades and Save.state.upgrades.dash then
     player.dash_cooldown_mul = 0.75
   end
@@ -242,9 +301,13 @@ local function newRun(fromTime)
   if Save.state.upgrades and Save.state.upgrades.halo then
     player.halo_boost = true
   end
-  -- equipped aura cosmetic (id string fed straight into Player draw)
+  -- equipped cosmetics (id strings fed straight into Player draw)
   local aidx = Save.state.aura_id or 1
   player.aura_id = (AURAS[aidx] and AURAS[aidx].id) or "default"
+  local tidx = Save.state.trail_id or 1
+  player.trail_id = (TRAILS[tidx] and TRAILS[tidx].id) or "sparkle"
+  local sidx = Save.state.shape_id or 1
+  player.shape_id = (SHAPES[sidx] and SHAPES[sidx].id) or "square"
 end
 
 -- Begin a soft revive: keep player position, full HP, brief i-frames, song
@@ -297,6 +360,8 @@ function love.load()
   if Save.state.apples == nil then Save.state.apples = 0 end
   if Save.state.completions == nil then Save.state.completions = 0 end
   if Save.state.aura_id == nil then Save.state.aura_id = 1 end
+  if Save.state.trail_id == nil then Save.state.trail_id = 1 end
+  if Save.state.shape_id == nil then Save.state.shape_id = 1 end
   if Save.state.last_unlock == nil then Save.state.last_unlock = nil end
   if Save.state.upgrades == nil then Save.state.upgrades = {} end
   -- ensure each upgrade key exists with a default; prevents nil-deref if a
@@ -455,6 +520,42 @@ function love.keypressed(key)
       end
       Save.state.aura_id = i; Save.write()
       if player then player.aura_id = (AURAS[i] and AURAS[i].id) or "default" end
+    elseif key == "f" then
+      SFX.play(snd_tick)
+      local n, i = #TRAILS, Save.state.trail_id or 1
+      for _ = 1, n do
+        i = ((i - 2) % n) + 1
+        if trailUnlocked(i) then break end
+      end
+      Save.state.trail_id = i; Save.write()
+      if player then player.trail_id = (TRAILS[i] and TRAILS[i].id) or "sparkle" end
+    elseif key == "g" then
+      SFX.play(snd_tick)
+      local n, i = #TRAILS, Save.state.trail_id or 1
+      for _ = 1, n do
+        i = (i % n) + 1
+        if trailUnlocked(i) then break end
+      end
+      Save.state.trail_id = i; Save.write()
+      if player then player.trail_id = (TRAILS[i] and TRAILS[i].id) or "sparkle" end
+    elseif key == "c" then
+      SFX.play(snd_tick)
+      local n, i = #SHAPES, Save.state.shape_id or 1
+      for _ = 1, n do
+        i = ((i - 2) % n) + 1
+        if shapeUnlocked(i) then break end
+      end
+      Save.state.shape_id = i; Save.write()
+      if player then player.shape_id = (SHAPES[i] and SHAPES[i].id) or "square" end
+    elseif key == "v" then
+      SFX.play(snd_tick)
+      local n, i = #SHAPES, Save.state.shape_id or 1
+      for _ = 1, n do
+        i = (i % n) + 1
+        if shapeUnlocked(i) then break end
+      end
+      Save.state.shape_id = i; Save.write()
+      if player then player.shape_id = (SHAPES[i] and SHAPES[i].id) or "square" end
     elseif key == "escape" then
       Net.leave()
       SFX.play(snd_tick)
@@ -672,6 +773,16 @@ local function update_play(dt)
             if a.unlock_at == Save.state.completions then newly = "aura: " .. a.name; break end
           end
         end
+        if not newly then
+          for _, a in ipairs(TRAILS) do
+            if a.unlock_at == Save.state.completions then newly = "trail: " .. a.name; break end
+          end
+        end
+        if not newly then
+          for _, a in ipairs(SHAPES) do
+            if a.unlock_at == Save.state.completions then newly = "shape: " .. a.name; break end
+          end
+        end
         Save.state.last_unlock = newly
         Save.write()
         fxFlash("#ffffff", 800)
@@ -690,32 +801,32 @@ local function update_play(dt)
 
     detectCloseCall(dt)
 
-    -- silhouette hover hazard: only hurts if the player lingers
-    do
-      local in_sil = false
-      if sil_scale > 0 then
-        local r = player.size * 0.22
-        local vx0 = (player.x - r - sil_dx) / sil_scale
-        local vy0 = (player.y - r - sil_dy) / sil_scale
-        local vx1 = (player.x + r - sil_dx) / sil_scale
-        local vy1 = (player.y + r - sil_dy) / sil_scale
-        if vx1 >= 0 and vy1 >= 0 and vx0 <= 480 and vy0 <= 360 then
-          if vx0 < 0 then vx0 = 0 end
-          if vy0 < 0 then vy0 = 0 end
-          if vx1 > 480 then vx1 = 480 end
-          if vy1 > 360 then vy1 = 360 end
-          local frame = Video.frameAt(audio_t)
-          in_sil = Collision.boxHits(frame, vx0, vy0, vx1, vy1)
-        end
-      end
-      if in_sil and not player:invincible() then
-        sil_stay_t = sil_stay_t + dt
-      else
-        sil_stay_t = math.max(0, sil_stay_t - dt * SIL_STAY_DECAY)
+    -- silhouette EDGE hazard: only the boundary hurts. Inside-silhouette
+    -- and outside-silhouette positions are safe; lingering on the edge
+    -- accumulates a stay timer and dings you when it crosses threshold.
+    local on_edge = false
+    if sil_scale > 0 then
+      local r = player.size * 0.18
+      local vx0 = (player.x - r - sil_dx) / sil_scale
+      local vy0 = (player.y - r - sil_dy) / sil_scale
+      local vx1 = (player.x + r - sil_dx) / sil_scale
+      local vy1 = (player.y + r - sil_dy) / sil_scale
+      if vx1 >= 0 and vy1 >= 0 and vx0 <= 480 and vy0 <= 360 then
+        if vx0 < 0 then vx0 = 0 end
+        if vy0 < 0 then vy0 = 0 end
+        if vx1 > 480 then vx1 = 480 end
+        if vy1 > 360 then vy1 = 360 end
+        local frame = Video.frameAt(audio_t)
+        on_edge = Collision.boxStraddles(frame, vx0, vy0, vx1, vy1)
       end
     end
+    if on_edge and not player:invincible() then
+      sil_stay_t = sil_stay_t + dt
+    else
+      sil_stay_t = math.max(0, sil_stay_t - dt * SIL_STAY_DECAY)
+    end
 
-    -- collision: spawned obstacles + lingering-in-silhouette
+    -- collision: spawned obstacles + lingering-on-silhouette-edge
     local got_hit = false
     if not player:invincible() then
       local h = Obstacles.checkHit(player.x, player.y, player.size * 0.22)
@@ -787,12 +898,11 @@ local function update_play(dt)
     shake_t    = math.max(0, shake_t - dt)
     flash_t    = math.max(0, flash_t - dt)
 
-    -- mood drift across song -- the player's accent and the portal mood drift
-    -- together so the chrome and gameplay share a pulse.
+    -- multi-colour accent: cycle through the world palette so the canvas
+    -- isn't stuck on a single hue. Drift slightly faster as intensity climbs
     local I = Director.intensity(audio_t)
-    accent[1] = 0.95
-    accent[2] = 0.30 + 0.20 * (1 - I)
-    accent[3] = 0.55 + 0.30 * I
+    local wa = worldAccent(audio_t * (1.0 + I * 0.6))
+    accent[1], accent[2], accent[3] = wa[1], wa[2], wa[3]
     -- emit mood at most ~3 Hz to avoid stdout spam
     if not _last_mood_t or audio_t - _last_mood_t > 0.35 then
       fxMood(colorHex(accent[1], accent[2], accent[3]), 0.20 + 0.45 * I)
@@ -1220,8 +1330,9 @@ function love.draw()
       last_unlock = Save.state.last_unlock,
       palette = PLAYER_PALETTE, color_idx = Save.state.player_color or 1,
       paletteUnlocked = paletteUnlocked,
-      auras = AURAS, aura_idx = Save.state.aura_id or 1,
-      auraUnlocked = auraUnlocked,
+      auras  = AURAS,  aura_idx  = Save.state.aura_id  or 1, auraUnlocked  = auraUnlocked,
+      trails = TRAILS, trail_idx = Save.state.trail_id or 1, trailUnlocked = trailUnlocked,
+      shapes = SHAPES, shape_idx = Save.state.shape_id or 1, shapeUnlocked = shapeUnlocked,
     }
     Lobby.draw(playerColor(), ctx,
                { huge = font_huge, big = font_big, med = font_med,

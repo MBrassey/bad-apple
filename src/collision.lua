@@ -59,4 +59,28 @@ function M.boxHits(frame, vx0, vy0, vx1, vy1)
   return false
 end
 
+-- True if the box contains BOTH bright (silhouette) and dark (background)
+-- pixels -- i.e. the box straddles the silhouette edge. This is what we use
+-- to determine whether the player is on the silhouette boundary; lingering
+-- inside the silhouette interior or outside in the backdrop does NOT
+-- straddle (returns false), so neither hurts.
+function M.boxStraddles(frame, vx0, vy0, vx1, vy1)
+  local cx0 = math.max(0, math.floor(vx0 * W / 480))
+  local cy0 = math.max(0, math.floor(vy0 * H / 360))
+  local cx1 = math.min(W - 1, math.floor(vx1 * W / 480))
+  local cy1 = math.min(H - 1, math.floor(vy1 * H / 360))
+  local saw_bright, saw_dark = false, false
+  for cy = cy0, cy1 do
+    local row = frame * FRAME_BYTES + cy * ROW_BYTES + 1
+    for cx = cx0, cx1 do
+      local byte = string.byte(data, row + math.floor(cx / 8))
+      local mask = MASKS[(cx % 8) + 1]
+      local set = byte and (math.floor(byte / mask) % 2) == 1
+      if set then saw_bright = true else saw_dark = true end
+      if saw_bright and saw_dark then return true end
+    end
+  end
+  return false
+end
+
 return M

@@ -327,39 +327,78 @@ local function drawRoundedSquare(cx, cy, sz, fillR, fillG, fillB, fillA, cornerR
   love.graphics.rectangle("fill", cx - sz*0.5, cy - sz*0.5, sz, sz, cornerR, cornerR)
 end
 
-local function drawFrag(cx, cy, sz, cr, cg, cb, alpha)
-  -- soft outer glow
+local function drawShape(cx, cy, sz, fillR, fillG, fillB, fillA, shape, rot)
+  shape = shape or "square"
+  if shape == "diamond" then
+    love.graphics.push()
+    love.graphics.translate(cx, cy)
+    love.graphics.rotate((rot or 0) + math.pi * 0.25)
+    love.graphics.setColor(fillR, fillG, fillB, fillA)
+    love.graphics.rectangle("fill", -sz*0.5, -sz*0.5, sz, sz, sz*0.18, sz*0.18)
+    love.graphics.pop()
+  elseif shape == "hex" then
+    -- hexagon via polygon
+    local pts = {}
+    for i = 0, 5 do
+      local a = (rot or 0) + i * math.pi / 3
+      table.insert(pts, cx + math.cos(a) * sz * 0.55)
+      table.insert(pts, cy + math.sin(a) * sz * 0.55)
+    end
+    love.graphics.setColor(fillR, fillG, fillB, fillA)
+    love.graphics.polygon("fill", pts)
+  else
+    love.graphics.setColor(fillR, fillG, fillB, fillA)
+    love.graphics.rectangle("fill", cx - sz*0.5, cy - sz*0.5, sz, sz, sz*0.25, sz*0.25)
+  end
+end
+
+local function drawFrag(cx, cy, sz, cr, cg, cb, alpha, shape)
   for i = 3, 1, -1 do
     local s = sz + i * 5
     love.graphics.setColor(cr, cg, cb, 0.10 * alpha)
-    love.graphics.rectangle("fill", cx - s*0.5, cy - s*0.5, s, s, s*0.30, s*0.30)
+    drawShape(cx, cy, s, cr, cg, cb, 0.10 * alpha, shape)
   end
-  -- bright white border
   local bs = sz + 3
-  love.graphics.setColor(1, 1, 1, 0.95 * alpha)
-  love.graphics.rectangle("fill", cx - bs*0.5, cy - bs*0.5, bs, bs, bs*0.28, bs*0.28)
-  -- accent fill
-  drawRoundedSquare(cx, cy, sz, cr, cg, cb, alpha, sz*0.28)
-  -- white inner sparkle
+  drawShape(cx, cy, bs, 1, 1, 1, 0.95 * alpha, shape)
+  drawShape(cx, cy, sz, cr, cg, cb, alpha, shape)
   local inner = sz * 0.45
-  love.graphics.setColor(1, 1, 1, 0.85 * alpha)
-  love.graphics.rectangle("fill", cx - inner*0.5, cy - inner*0.5, inner, inner, inner*0.30, inner*0.30)
+  drawShape(cx, cy, inner, 1, 1, 1, 0.85 * alpha, shape)
 end
 
 function M:draw(accent)
   local ax, ay, az = accent[1], accent[2], accent[3]
 
-  -- 1) sparkle trail (under everything)
+  -- 1) trail / tracer (under everything). Style depends on equipped trail_id
+  local trail_id = self.trail_id or "sparkle"
   for _, s in ipairs(self.sparkles) do
     local k = 1 - s.age / s.life
     if k > 0 then
-      local a = (s.dash and 0.30 or 0.20) * k
-      love.graphics.setColor(ax, ay, az, a)
-      local h = s.size * 1.7
-      love.graphics.rectangle("fill", s.x - h*0.5, s.y - h*0.5, h, h, h*0.4, h*0.4)
-      love.graphics.setColor(1, 1, 1, 0.9 * k)
-      love.graphics.rectangle("fill", s.x - s.size*0.5, s.y - s.size*0.5,
-                              s.size, s.size, s.size*0.35, s.size*0.35)
+      if trail_id == "comet" then
+        love.graphics.setColor(ax, ay, az, 0.30 * k)
+        love.graphics.circle("fill", s.x, s.y, s.size * 1.8)
+        love.graphics.setColor(1, 1, 1, 0.85 * k)
+        love.graphics.circle("fill", s.x, s.y, s.size * 0.8)
+      elseif trail_id == "ember" then
+        love.graphics.setColor(1.0, 0.55 + 0.3 * k, 0.20, 0.55 * k)
+        love.graphics.circle("fill", s.x, s.y, s.size * 1.4)
+        love.graphics.setColor(1, 1, 0.6, 0.85 * k)
+        love.graphics.circle("fill", s.x, s.y, s.size * 0.55)
+      elseif trail_id == "ghost" then
+        love.graphics.setColor(ax, ay, az, 0.20 * k)
+        love.graphics.rectangle("fill", s.x - s.size*1.2, s.y - s.size*1.2,
+                                s.size*2.4, s.size*2.4, s.size*0.6, s.size*0.6)
+        love.graphics.setColor(0.9, 0.95, 1.0, 0.55 * k)
+        love.graphics.rectangle("line", s.x - s.size*0.6, s.y - s.size*0.6,
+                                s.size*1.2, s.size*1.2, s.size*0.3, s.size*0.3)
+      else  -- sparkle (default)
+        local a = (s.dash and 0.30 or 0.20) * k
+        love.graphics.setColor(ax, ay, az, a)
+        local h = s.size * 1.7
+        love.graphics.rectangle("fill", s.x - h*0.5, s.y - h*0.5, h, h, h*0.4, h*0.4)
+        love.graphics.setColor(1, 1, 1, 0.9 * k)
+        love.graphics.rectangle("fill", s.x - s.size*0.5, s.y - s.size*0.5,
+                                s.size, s.size, s.size*0.35, s.size*0.35)
+      end
     end
   end
 
@@ -440,16 +479,17 @@ function M:draw(accent)
   end
 
   -- 4) attached fragments
+  local shape = self.shape_id or "square"
   for _, f in ipairs(self.frags) do
     if f.attached then
       drawFrag(self.x + f.gx * FRAG_STRIDE,
                self.y + f.gy * FRAG_STRIDE,
-               FRAG_SIZE, cr, cg, cb, blink)
+               FRAG_SIZE, cr, cg, cb, blink, shape)
     end
   end
 
   -- 5) the central core (always drawn while alive)
-  drawFrag(self.x, self.y, CORE_SIZE, cr, cg, cb, blink)
+  drawFrag(self.x, self.y, CORE_SIZE, cr, cg, cb, blink, shape)
 end
 
 return M

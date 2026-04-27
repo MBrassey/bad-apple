@@ -78,6 +78,7 @@ function M.bullet(opts)
   o.life   = opts.life or 4.0
   o.elapsed = 0
   o.warn_len = opts.warn_len or 1800
+  o.color = opts.color
   return M.add(o)
 end
 
@@ -90,7 +91,8 @@ function Bullet:update(dt, t)
 end
 
 function Bullet:draw(accent)
-  local cr, cg, cb = accent[1], accent[2], accent[3]
+  local c = self.color or accent
+  local cr, cg, cb = c[1], c[2], c[3]
   if self.elapsed < self.fire_t then
     local k = self.elapsed / self.fire_t
     -- accelerating telegraph pulse: faster as fire approaches
@@ -150,6 +152,7 @@ function M.burst(opts)
       r = opts.r or 11,
       fire_t = opts.fire_t or 0.50,
       life = opts.life or 4.0,
+      color = opts.color,
     })
   end
 end
@@ -166,13 +169,15 @@ function M.beam(opts)
   o.fire   = opts.fire or 0.30
   o.thick  = opts.thick or 26
   o.elapsed = 0
+  o.color = opts.color
   return M.add(o)
 end
 
 function Beam:update(dt, t) self.elapsed = self.elapsed + dt end
 
 function Beam:draw(accent)
-  local cr, cg, cb = accent[1], accent[2], accent[3]
+  local c = self.color or accent
+  local cr, cg, cb = c[1], c[2], c[3]
   local e, w, f = self.elapsed, self.warn, self.fire
   if e < w then
     local k = e / w
@@ -234,6 +239,7 @@ function M.wave(opts)
   o.warn = opts.warn or 0.55
   o.elapsed = 0
   o.dead = false
+  o.color = opts.color
   return M.add(o)
 end
 
@@ -256,7 +262,8 @@ function Wave:update(dt, t)
 end
 
 local function drawIlluminatedSlab(x, y, w, h, accent, alpha)
-  local cr, cg, cb = accent[1], accent[2], accent[3]
+  local c = self.color or accent
+  local cr, cg, cb = c[1], c[2], c[3]
   local rad = math.min(w, h) * 0.30
   -- decorative outer glow halos
   for i = 5, 1, -1 do
@@ -282,10 +289,11 @@ local function drawIlluminatedSlab(x, y, w, h, accent, alpha)
 end
 
 function Wave:draw(accent)
+  local c = self.color or accent
   if self.elapsed < self.warn then
     local k = self.elapsed / self.warn
     local pulse = 0.45 + 0.55 * math.abs(math.sin(self.elapsed * (12 + 18 * k)))
-    love.graphics.setColor(accent[1], accent[2], accent[3], 0.22 * pulse)
+    love.graphics.setColor(c[1], c[2], c[3], 0.22 * pulse)
     if self.dir == "right" or self.dir == "left" then
       love.graphics.rectangle("fill", 0, 0, 1920, self.gap_y - self.gap_h*0.5, 16, 16)
       love.graphics.rectangle("fill", 0, self.gap_y + self.gap_h*0.5, 1920,
@@ -295,7 +303,6 @@ function Wave:draw(accent)
       love.graphics.rectangle("fill", self.gap_y + self.gap_h*0.5, 0,
                               1920 - (self.gap_y + self.gap_h*0.5), 1080, 16, 16)
     end
-    -- pulsing white border along the gap edges
     love.graphics.setColor(1, 1, 1, 0.55 * pulse)
     love.graphics.setLineWidth(3)
     if self.dir == "right" or self.dir == "left" then
@@ -313,14 +320,14 @@ function Wave:draw(accent)
     local x = self.x
     local topH = self.gap_y - self.gap_h*0.5
     local botY = self.gap_y + self.gap_h*0.5
-    drawIlluminatedSlab(x, 0,    self.thick, topH,            accent, 1.0)
-    drawIlluminatedSlab(x, botY, self.thick, 1080 - botY,     accent, 1.0)
+    drawIlluminatedSlab(x, 0,    self.thick, topH,            c, 1.0)
+    drawIlluminatedSlab(x, botY, self.thick, 1080 - botY,     c, 1.0)
   else
     local y = self.y
     local leftW = self.gap_y - self.gap_h*0.5
     local rightX = self.gap_y + self.gap_h*0.5
-    drawIlluminatedSlab(0,      y, leftW,        self.thick, accent, 1.0)
-    drawIlluminatedSlab(rightX, y, 1920 - rightX, self.thick, accent, 1.0)
+    drawIlluminatedSlab(0,      y, leftW,        self.thick, c, 1.0)
+    drawIlluminatedSlab(rightX, y, 1920 - rightX, self.thick, c, 1.0)
   end
 end
 
@@ -358,6 +365,7 @@ function M.ring(opts)
   o.thick = opts.thick or 16
   o.warn = opts.warn or 0.50
   o.elapsed = 0
+  o.color = opts.color
   return M.add(o)
 end
 
@@ -369,7 +377,8 @@ function Ring:update(dt, t)
 end
 
 function Ring:draw(accent)
-  local cr, cg, cb = accent[1], accent[2], accent[3]
+  local c = self.color or accent
+  local cr, cg, cb = c[1], c[2], c[3]
   if self.elapsed < self.warn then
     local k = self.elapsed / self.warn
     local pulse = 0.4 + 0.6 * math.abs(math.sin(self.elapsed * (16 + 22 * k)))
@@ -427,6 +436,7 @@ function M.chaser(opts)
   o.warn = opts.warn or 0.60
   o.elapsed = 0
   o.target = opts.target
+  o.color = opts.color
   return M.add(o)
 end
 
@@ -443,7 +453,8 @@ function Chaser:update(dt, t)
 end
 
 function Chaser:draw(accent)
-  local cr, cg, cb = accent[1], accent[2], accent[3]
+  local c = self.color or accent
+  local cr, cg, cb = c[1], c[2], c[3]
   if self.elapsed < self.warn then
     local k = self.elapsed / self.warn
     local pulse = 0.4 + 0.6 * math.abs(math.sin(self.elapsed * (16 + 22 * k)))
@@ -497,6 +508,7 @@ function M.spinner(opts)
   o.life = opts.life or 2.6
   o.warn = opts.warn or 0.55
   o.elapsed = 0
+  o.color = opts.color
   return M.add(o)
 end
 
@@ -508,7 +520,8 @@ function Spinner:update(dt, t)
 end
 
 function Spinner:draw(accent)
-  local cr, cg, cb = accent[1], accent[2], accent[3]
+  local c = self.color or accent
+  local cr, cg, cb = c[1], c[2], c[3]
   local x, y, L, thk = self.x, self.y, self.length, self.thick
   local active = self.elapsed >= self.warn
   if not active then

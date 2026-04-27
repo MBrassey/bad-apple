@@ -2,6 +2,11 @@
 -- Difficulty ramps over song time so the experience builds.
 local Obs = require "src.obstacles"
 
+local function pickColour()
+  if M and M.colourFor then return M.colourFor() end
+  return nil
+end
+
 local M = {}
 
 local PLAY_W, PLAY_H = 1920, 1080
@@ -85,16 +90,16 @@ local function onKick(t, ev, target)
   if r < 0.82 or I < 0.25 then
     local x, y = edgePoint()
     local dx, dy = dirToCenter(x + rand(-220,220), y + rand(-150,150))
-    Obs.bullet({ x=x, y=y, dx=dx, dy=dy, speed=290 + I * 90, fire_t=0.50, r=12 })
+    Obs.bullet({ x=x, y=y, dx=dx, dy=dy, speed=290 + I * 90, fire_t=0.50, r=12, color=pickColour() })
   elseif r < 0.94 then
     local x = CENTER_X + rand(-340, 340)
     local y = CENTER_Y + rand(-210, 210)
-    Obs.ring({ x=x, y=y, maxr=780, speed=240 + I * 90, thick=14, warn=0.50 })
+    Obs.ring({ x=x, y=y, maxr=780, speed=240 + I * 90, thick=14, warn=0.50, color=pickColour() })
   else
     local x = rand(320, PLAY_W-320)
     local y = rand(220, PLAY_H-220)
     local n = 5 + math.floor(I * 3)
-    Obs.burst({ x=x, y=y, count=n, speed=210 + I*90, r=11, fire_t=0.50, angle=rand(0, math.pi) })
+    Obs.burst({ x=x, y=y, count=n, speed=210 + I*90, r=11, fire_t=0.50, angle=rand(0, math.pi), color=pickColour() })
   end
 end
 
@@ -115,6 +120,7 @@ local function onSnare(t, ev, target)
       arms   = 2,
       life   = 1.0 + I * 0.4,
       warn   = 0.65,
+      color  = pickColour(),
     })
   elseif r < 0.78 then
     local horiz = love.math.random() < 0.6
@@ -126,6 +132,7 @@ local function onSnare(t, ev, target)
         gap_h = math.max(380, 520 - I * 80),
         speed = 280 + I * 80,
         warn = 0.70,
+        color = pickColour(),
       })
     else
       Obs.wave({
@@ -135,16 +142,17 @@ local function onSnare(t, ev, target)
         gap_h = math.max(380, 520 - I * 80),
         speed = 280 + I * 80,
         warn = 0.70,
+        color = pickColour(),
       })
     end
   else
     local horiz = love.math.random() < 0.6
     if horiz then
       local y = rand(180, PLAY_H - 180)
-      Obs.beam({ ax=-20, ay=y, bx=PLAY_W+20, by=y, warn=0.65, fire=0.20, thick=24 + I*4 })
+      Obs.beam({ ax=-20, ay=y, bx=PLAY_W+20, by=y, warn=0.65, fire=0.20, thick=24 + I*4, color=pickColour() })
     else
       local x = rand(180, PLAY_W - 180)
-      Obs.beam({ ax=x, ay=-20, bx=x, by=PLAY_H+20, warn=0.65, fire=0.20, thick=24 + I*4 })
+      Obs.beam({ ax=x, ay=-20, bx=x, by=PLAY_H+20, warn=0.65, fire=0.20, thick=24 + I*4, color=pickColour() })
     end
   end
 end
@@ -166,6 +174,7 @@ local function onChorusBeat(t, ev, target)
       life = 7,
       warn = 0.55,
       target = target,
+      color = pickColour(),
     })
   end
 end
@@ -173,6 +182,10 @@ end
 ----------------------------------------------------------------------
 -- Public entry points
 ----------------------------------------------------------------------
+
+-- Optional colour picker injected by main.lua so each spawn gets a unique
+-- per-obstacle hue from the world palette.
+M.colourFor = nil
 
 function M.handle(ev, t, target)
   if ev.type == "kick"  then onKick(t, ev, target)

@@ -154,7 +154,7 @@ local function drawTopBar(accent, fonts, ctx)
   -- subtitle
   love.graphics.setFont(fonts.small)
   love.graphics.setColor(1, 1, 1, 0.55)
-  love.graphics.print("BAD APPLE  //  CYBER LOBBY", 50, 80)
+  love.graphics.print("CHARACTER HOME  //  CYBER LOBBY", 50, 80)
   -- centre: completion ring + counter
   local cx = DESIGN_W * 0.5
   local cy = 65
@@ -201,42 +201,41 @@ local function drawLeftPanel(accent, fonts, ctx)
     local py = sy + r * (sz + gap)
     drawSwatch(px, py, sz, p.rgb, i == ctx.color_idx, not ctx.paletteUnlocked(i))
   end
-  -- aura section
-  local ay = sy + (math.ceil(#ctx.palette / cols)) * (sz + gap) + 30
-  love.graphics.setFont(fonts.med)
-  love.graphics.setColor(accent[1], accent[2], accent[3], 1)
-  love.graphics.print("AURA", x + 22, ay)
-  love.graphics.setFont(fonts.small)
-  love.graphics.setColor(1, 1, 1, 0.55)
-  love.graphics.print("Z / X   aura", x + 22, ay + 36)
-  for i, a in ipairs(ctx.auras) do
-    local row_y = ay + 70 + (i - 1) * 40
-    local sel = (i == ctx.aura_idx)
-    local locked = not ctx.auraUnlocked(i)
-    -- bullet square
-    if sel then
-      love.graphics.setColor(accent[1], accent[2], accent[3], 1)
-    elseif locked then
-      love.graphics.setColor(1, 1, 1, 0.20)
-    else
-      love.graphics.setColor(1, 1, 1, 0.45)
+  -- helper: compact list panel (used for aura / trail / shape)
+  local function listPanel(title, hint, items, sel_idx, isUnlocked, ay)
+    love.graphics.setFont(fonts.med)
+    love.graphics.setColor(accent[1], accent[2], accent[3], 1)
+    love.graphics.print(title, x + 22, ay)
+    love.graphics.setFont(fonts.small)
+    love.graphics.setColor(1, 1, 1, 0.55)
+    love.graphics.print(hint, x + 22, ay + 30)
+    for i, a in ipairs(items) do
+      local row_y = ay + 60 + (i - 1) * 28
+      local sel = (i == sel_idx)
+      local locked = not isUnlocked(i)
+      if sel then love.graphics.setColor(accent[1], accent[2], accent[3], 1)
+      elseif locked then love.graphics.setColor(1, 1, 1, 0.20)
+      else love.graphics.setColor(1, 1, 1, 0.45) end
+      love.graphics.rectangle("fill", x + 22, row_y + 5, 12, 12, 2, 2)
+      if locked then love.graphics.setColor(1, 1, 1, 0.30)
+      elseif sel then love.graphics.setColor(1, 1, 1, 1)
+      else love.graphics.setColor(1, 1, 1, 0.75) end
+      love.graphics.print(a.name, x + 46, row_y)
+      if locked then
+        love.graphics.setColor(1, 0.55, 0.55, 0.85)
+        love.graphics.printf(string.format("%d wins", math.max(0, (a.unlock_at or 0) - (ctx.completions or 0))),
+                             x + 22, row_y, w - 44, "right")
+      end
     end
-    love.graphics.rectangle("fill", x + 22, row_y + 6, 14, 14, 3, 3)
-    -- name
-    if locked then
-      love.graphics.setColor(1, 1, 1, 0.30)
-    elseif sel then
-      love.graphics.setColor(1, 1, 1, 1)
-    else
-      love.graphics.setColor(1, 1, 1, 0.75)
-    end
-    love.graphics.print(a.name, x + 50, row_y)
-    if locked then
-      love.graphics.setColor(1, 0.55, 0.55, 0.85)
-      love.graphics.printf(string.format("%d wins", math.max(0, (a.unlock_at or 0) - (ctx.completions or 0))),
-                           x + 22, row_y, w - 44, "right")
-    end
+    return ay + 60 + #items * 28
   end
+
+  -- AURA / TRAIL / SHAPE stacked vertically. Each shows N wins remaining
+  -- on locked entries so the unlock target is visible.
+  local ay = sy + (math.ceil(#ctx.palette / cols)) * (sz + gap) + 24
+  ay = listPanel("AURA",   "Z / X   aura",   ctx.auras,  ctx.aura_idx,  ctx.auraUnlocked,  ay) + 18
+  ay = listPanel("TRAIL",  "F / G   trail",  ctx.trails, ctx.trail_idx, ctx.trailUnlocked, ay) + 18
+  ay = listPanel("SHAPE",  "C / V   shape",  ctx.shapes, ctx.shape_idx, ctx.shapeUnlocked, ay)
 end
 
 local function drawRightPanel(accent, fonts, ctx)
