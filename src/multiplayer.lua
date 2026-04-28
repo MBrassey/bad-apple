@@ -8,11 +8,12 @@ local json = require "lib.json"
 local M = {}
 
 M.enabled = false                       -- becomes true after lobby join
-M.room    = nil
-M.identity = { signedIn = false, handle = "anon" }
-M.ghosts  = {}                          -- map: peer_id -> { x, y, hp, dashing, t }
+M.room    = nil                         -- whatever __loveweb__/net/room.json reports
+M.identity = { signedIn = false, handle = "anon", userId = nil }
+M.ghosts  = {}                          -- map: peer_id -> { x, y, hp, dashing, handle, avatar, t }
 M.send_t  = 0
 M.SEND_HZ = 4
+M._roster_t = 0                         -- accumulator for roster polling
 
 local function emit(line) print(line) end
 
@@ -34,10 +35,64 @@ function M.load()
   if id then M.identity = id end
 end
 
+-- Open the public Bad Apple lobby. The portal handles routing -- if a
+-- public room with this name is already live, the create verb folds into
+-- joining it rather than creating a fresh one (so two players who both
+-- click M end up in the same room).
 function M.tryJoinPublic()
   emit("[[LOVEWEB_NET]]create lobby Bad Apple // Beat Dash")
   M.enabled = true
   M._inbox_cursor = 0
+  M._roster_t = 0
+  M.ghosts = {}
+end
+
+-- Reload identity (the portal may write/update it after auth completes).
+local function refreshIdentity()
+  local id = readJsonOrNil("__loveweb__/net/identity.json")
+              or readJsonOrNil("__loveweb__/identity.json")
+  if id then M.identity = id end
+end
+
+-- Read the current room metadata. Lets us know which roomId we're in and
+-- expose it to the UI for sharing.
+local function refreshRoom()
+  local r = readJsonOrNil("__loveweb__/net/room.json")
+            or readJsonOrNil("__loveweb__/room.json")
+  if r then M.room = r end
+end
+
+-- Pull the roster: every peer currently in the same room. Each entry
+-- arrives with { userId, handle, avatar } at minimum. Peers from the
+-- roster are added to M.ghosts immediately so the lobby shows a body
+-- for everyone present, even before they've sent a `pos` event.
+local function refreshRoster()
+  local roster = readJsonOrNil("__loveweb__/net/roster.json")
+                  or readJsonOrNil("__loveweb__/roster.json")
+  if not roster then return end
+  local peers = roster.peers or roster.members or roster
+  if type(peers) ~= "table" then return end
+  -- normalise into a list of peer entries
+  local list = (peers.peers or peers.members) or peers
+  for _, peer in ipairs(list) do
+    local uid = peer.userId or peer.user_id or peer.id
+    if uid and uid ~= (M.identity and M.identity.userId) then
+      local g = M.ghosts[uid] or {}
+      g.handle = peer.handle or g.handle or "?"
+      g.avatar = peer.avatar or g.avatar
+      if not g.x then
+        -- place fresh peers at a random spot inside the lobby play area
+        -- until their first `pos` arrives -- so the room never looks empty
+        local hash = 0
+        for i = 1, #tostring(uid) do hash = (hash * 31 + tostring(uid):byte(i)) % 1024 end
+        g.x = 540 + (hash % 700)
+        g.y = 280 + ((hash * 7) % 360)
+        g.tx, g.ty = g.x, g.y
+      end
+      g.t = love.timer.getTime()
+      M.ghosts[uid] = g
+    end
+  end
 end
 
 function M.leave()
@@ -108,38 +163,64 @@ function M.poll()
   for line in tail:gmatch("[^\n]+") do
     local ok, ev = pcall(json.decode, line)
     if ok and type(ev) == "table" then
-      if ev.kind == "event" and ev.verb == "pos" and ev.from and ev.payload then
-        local p = ev.payload
-        local g = M.ghosts[ev.from] or {}
-        g.tx, g.ty = p.x, p.y
-        if not g.x then g.x, g.y = p.x, p.y end
-        g.hp = p.hp or 4
-        g.dashing = (p.d or 0) == 1
-        g.t = love.timer.getTime()
-        g.handle = ev.handle or "?"
-        if p.c and #p.c == 3 then
-          g.color = { p.c[1] / 255, p.c[2] / 255, p.c[3] / 255 }
+      -- the new spec wraps every event with userId / verb / payload (plus
+      -- handle, avatar, ts). We handle both the new shape and the legacy
+      -- {kind, from, payload, ...} so older portal builds keep working.
+      local from   = ev.userId or ev.from
+      local verb   = ev.verb or (ev.kind == "event" and "pos") or ev.kind
+      local payload = ev.payload or {}
+      local handle = ev.handle
+      local avatar = ev.avatar
+      if from and from ~= (M.identity and M.identity.userId) then
+        if verb == "pos" and payload then
+          local p = payload
+          local g = M.ghosts[from] or {}
+          g.tx, g.ty = p.x, p.y
+          if not g.x then g.x, g.y = p.x, p.y end
+          g.hp = p.hp or 4
+          g.dashing = (p.d or 0) == 1
+          g.t = love.timer.getTime()
+          g.handle = handle or g.handle or "?"
+          g.avatar = avatar or g.avatar
+          if p.c and #p.c == 3 then
+            g.color = { p.c[1] / 255, p.c[2] / 255, p.c[3] / 255 }
+          end
+          if p.u then
+            g.halo = (p.u.h or 0) == 1
+            g.sparkles = (p.u.s or 0) == 1
+          end
+          g.trail = g.trail or {}
+          if g.was_dashing or g.dashing then
+            table.insert(g.trail, 1, { x = g.x, y = g.y, t = 0 })
+            while #g.trail > 30 do table.remove(g.trail) end
+          end
+          g.was_dashing = g.dashing
+          M.ghosts[from] = g
+        elseif verb == "join" or verb == "presence" then
+          -- presence ping -- create the ghost if we haven't seen them yet
+          local g = M.ghosts[from] or {}
+          g.handle = handle or g.handle or "?"
+          g.avatar = avatar or g.avatar
+          if not g.x then g.x = 720 + love.math.random(0, 480); g.y = 360 + love.math.random(0, 240) end
+          g.t = love.timer.getTime()
+          M.ghosts[from] = g
+        elseif verb == "leave" then
+          M.ghosts[from] = nil
         end
-        if p.u then
-          g.halo = (p.u.h or 0) == 1
-          g.sparkles = (p.u.s or 0) == 1
-        end
-        -- maintain a short trail of the ghost's recent positions for sparkle FX
-        g.trail = g.trail or {}
-        if g.was_dashing or g.dashing then
-          table.insert(g.trail, 1, { x = g.x, y = g.y, t = 0 })
-          while #g.trail > 30 do table.remove(g.trail) end
-        end
-        g.was_dashing = g.dashing
-        M.ghosts[ev.from] = g
-      elseif ev.kind == "leave" and ev.from then
-        M.ghosts[ev.from] = nil
       end
     end
   end
 end
 
 function M.update(dt)
+  -- poll roster + room every ~0.75 s so newly-joined peers appear quickly
+  M._roster_t = M._roster_t + dt
+  if M.enabled and M._roster_t > 0.75 then
+    M._roster_t = 0
+    refreshIdentity()
+    refreshRoom()
+    refreshRoster()
+  end
   for id, g in pairs(M.ghosts) do
     if g.tx and g.ty and g.x and g.y then
       g.x = g.x + (g.tx - g.x) * math.min(1, dt * 6)
@@ -151,7 +232,8 @@ function M.update(dt)
         if g.trail[i].t > 0.45 then table.remove(g.trail, i) end
       end
     end
-    if g.t and (love.timer.getTime() - g.t) > 4 then
+    -- expire stale ghosts: 12 s without any presence/pos signal -> drop
+    if g.t and (love.timer.getTime() - g.t) > 12 then
       M.ghosts[id] = nil
     end
   end
