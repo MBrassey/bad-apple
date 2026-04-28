@@ -26,7 +26,11 @@ local function readJsonOrNil(path)
 end
 
 function M.load()
-  local id = readJsonOrNil("__loveweb__/identity.json")
+  -- Identity moved under __loveweb__/net/ (canonical). The legacy path is
+  -- still mirrored during the transition, so we read the new one first and
+  -- fall back to the old.
+  local id = readJsonOrNil("__loveweb__/net/identity.json")
+              or readJsonOrNil("__loveweb__/identity.json")
   if id then M.identity = id end
 end
 
@@ -48,6 +52,9 @@ function M.broadcast(player, dt, color, upgrades)
   M.send_t = M.send_t + dt
   if M.send_t < 1 / M.SEND_HZ then return end
   M.send_t = 0
+  -- Custom verb 'pos' -- passes the ^[a-z][a-z0-9_]*$ rule and isn't in
+  -- the reserved set {join, leave, presence, state, kick}, so the portal
+  -- forwards the payload to every peer's net inbox unchanged.
   local payload = {
     x = math.floor(player.x),
     y = math.floor(player.y),
@@ -62,9 +69,27 @@ function M.broadcast(player, dt, color, upgrades)
   emit("[[LOVEWEB_NET]]send pos " .. json.encode(payload))
 end
 
--- Pull inbox events (delivered by portal as JSON lines). Track a byte cursor
--- so we don't re-parse already-handled lines every frame -- file is appended
--- to by the portal but we only read forward from where we left off.
+-- Profile request -- result lands at __loveweb__/net/profiles/<userId>.json
+-- (canonical). The legacy __loveweb__/profiles/<userId>.json is mirrored
+-- during the transition. Useful if the lobby ever wants to surface a
+-- peer's avatar / public stats; for now it's available as a helper.
+function M.requestProfile(userId)
+  if not userId then return end
+  emit("[[LOVEWEB_NET]]profile " .. tostring(userId))
+end
+
+local function readJsonProfile(userId)
+  if not userId then return nil end
+  return readJsonOrNil("__loveweb__/net/profiles/" .. userId .. ".json")
+      or readJsonOrNil("__loveweb__/profiles/" .. userId .. ".json")
+end
+
+function M.profile(userId) return readJsonProfile(userId) end
+
+-- Pull inbox events (delivered by portal as JSON lines at the canonical
+-- __loveweb__/net/inbox.jsonl). Each line is a full NetEvent JSON with
+-- userId, verb, payload, plus id/roomId/handle/avatar/ts/target. We track
+-- a byte cursor so we don't re-parse already-handled lines every frame.
 M._inbox_cursor = 0
 
 function M.poll()
