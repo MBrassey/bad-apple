@@ -210,6 +210,11 @@ local death_pos = { x = 0, y = 0 }
 local death_audio_t = 0
 local _last_mood_t = nil
 local revives_remaining = 1
+-- Silhouette boundary stay timer. Brief brushes are safe; standing on the
+-- morphing edge for SIL_STAY_THRESHOLD seconds deals damage.
+-- Silhouette boundary state packed into a single local table so update_play
+-- only consumes ONE upvalue slot (Lua 5.1 caps closures at 60 upvalues).
+local sil = { stay = 0, THRESHOLD = 1.0, DECAY = 3.0 }
 
 -- Final apple: a floating glowing target the player must touch to clear
 -- the level (instead of the song just ending into the win screen).
@@ -336,6 +341,7 @@ local function newRun(fromTime)
   combo = 0
   score = 0
   victory_shown = false
+  sil.stay = 0
   -- per-run variation: shuffle the random seed and the mosaic hue offset so
   -- every run looks and plays slightly different even though it's the same
   -- song / same beat events.
@@ -938,14 +944,23 @@ local function update_play(dt)
       end
     end
 
-    -- collision: any contact with a spawned obstacle hot zone OR with the
-    -- silhouette boundary is an instant hit. Inside/outside the silhouette
-    -- is safe.
+    -- accumulate stay timer while straddling the silhouette boundary;
+    -- decay quickly otherwise so transient brushes don't compound
+    if on_edge and not player:invincible() then
+      sil.stay = sil.stay + dt
+    else
+      sil.stay = math.max(0, sil.stay - dt * sil.DECAY)
+    end
+
+    -- collision: spawned obstacles deal damage on contact; the silhouette
+    -- only damages once the stay timer crosses sil.THRESHOLD
     local got_hit = false
     if not player:invincible() then
       local h = Obstacles.checkHit(player.x, player.y, player.size * 0.22)
       if h and player:hit() then got_hit = "obstacle" end
-      if not got_hit and on_edge and player:hit() then got_hit = "silhouette" end
+      if not got_hit and sil.stay > sil.THRESHOLD and player:hit() then
+        got_hit = "silhouette"; sil.stay = 0
+      end
     end
 
     if got_hit then
@@ -1452,7 +1467,22 @@ function love.draw()
     drawSilhouetteWithGlow(audio_t)
     Net.draw()
     Obstacles.drawAll(accent)
-    if player then player:draw(playerColor()) end
+    if player then
+      player:draw(playerColor())
+      -- silhouette stay-timer warning ring: fades in as the timer climbs
+      if sil.stay > 0.10 then
+        local k = math.min(1, sil.stay / sil.THRESHOLD)
+        local pulse = 0.5 + 0.5 * math.abs(math.sin(love.timer.getTime() * (8 + 16 * k)))
+        for i = 4, 1, -1 do
+          love.graphics.setColor(1.0, 0.25, 0.35, 0.14 * k * pulse)
+          love.graphics.circle("line", player.x, player.y, player.size * 0.55 + i * 6)
+        end
+        love.graphics.setColor(1.0, 0.30, 0.40, 0.85 * k * pulse)
+        love.graphics.setLineWidth(3)
+        love.graphics.circle("line", player.x, player.y, player.size * 0.55)
+        love.graphics.setLineWidth(1)
+      end
+    end
     drawHUD()
     drawEdgeTints()
     drawScreenFlash()
@@ -1462,37 +1492,70 @@ function love.draw()
     if state == "win"      then drawWin()           end
     if state == "shop"     then drawShop()          end
     if state == "apple_catch" and apple then
-      -- glowing pulsating apple, slightly drifting around the player
+      -- Artistic apple silhouette in the Bad Apple aesthetic: stark
+      -- monochrome shape (deep black fill) with a bright pulsing outline
+      -- and a soft accent halo. No cartoon shading, no green leaf -- just
+      -- a clean silhouette that breathes.
       local rt = love.timer.getTime()
-      local pulse = 0.85 + 0.15 * math.sin(rt * 4)
-      local cx, cy, r = apple.x, apple.y, apple.radius
-      -- soft outer glow halos
-      for i = 8, 1, -1 do
-        love.graphics.setColor(1.0, 0.30, 0.45, 0.06 * pulse)
-        love.graphics.circle("fill", cx, cy, r + i * 6)
+      local pulse = 0.80 + 0.20 * math.sin(rt * 3.2)
+      local breath = 1.0 + 0.05 * math.sin(rt * 2.0)
+      local R = apple.radius * breath
+      local cx, cy = apple.x, apple.y
+      local accent_col = playerColor()
+
+      -- soft outer halo (accent tinted) -- the apple is the only bright
+      -- thing on the canvas at this point; halo sells "find me"
+      for i = 12, 1, -1 do
+        love.graphics.setColor(accent_col[1], accent_col[2], accent_col[3], 0.045 * pulse)
+        love.graphics.circle("fill", cx, cy + R * 0.05, R * 1.15 + i * 6)
       end
-      -- bright pulsing white border
+
+      -- silhouette body: a slightly squashed circle, then a softer cap to
+      -- suggest the classic apple-shoulder dip at the top
+      love.graphics.setColor(0.02, 0.02, 0.04, 1)
+      love.graphics.circle("fill", cx, cy + R * 0.08, R * 1.05)
+      -- carve the top dip by drawing a small chip in the same backdrop tone
+      love.graphics.setColor(0.020, 0.012, 0.040, 1)
+      love.graphics.circle("fill", cx, cy - R * 0.78, R * 0.30)
+
+      -- thin stem -- straight, monochrome, part of the silhouette
+      love.graphics.setColor(0.02, 0.02, 0.04, 1)
+      love.graphics.rectangle("fill", cx - 2, cy - R * 1.05, 4, R * 0.30)
+
+      -- single elegant leaf (silhouette, not green) tilted off the stem
+      love.graphics.push()
+      love.graphics.translate(cx + 8, cy - R * 0.95)
+      love.graphics.rotate(-math.pi * 0.22)
+      love.graphics.setColor(0.02, 0.02, 0.04, 1)
+      love.graphics.ellipse("fill", 0, 0, R * 0.34, R * 0.13)
+      love.graphics.pop()
+
+      -- bright pulsing outline -- the only colour on the apple itself.
+      -- Drawn last so it crowns the silhouette.
       love.graphics.setColor(1, 1, 1, pulse)
-      love.graphics.setLineWidth(4)
-      love.graphics.circle("line", cx, cy, r)
+      love.graphics.setLineWidth(3)
+      love.graphics.circle("line", cx, cy + R * 0.08, R * 1.05)
+      love.graphics.line(cx - 2, cy - R * 1.05, cx - 2, cy - R * 0.75)
+      love.graphics.line(cx + 2, cy - R * 1.05, cx + 2, cy - R * 0.75)
+      -- leaf outline
+      love.graphics.push()
+      love.graphics.translate(cx + 8, cy - R * 0.95)
+      love.graphics.rotate(-math.pi * 0.22)
+      love.graphics.ellipse("line", 0, 0, R * 0.34, R * 0.13)
+      love.graphics.pop()
       love.graphics.setLineWidth(1)
-      -- red apple body
-      love.graphics.setColor(1.0, 0.30, 0.45, 1)
-      love.graphics.circle("fill", cx, cy, r - 2)
-      -- white shine
-      love.graphics.setColor(1, 1, 1, 0.85)
-      love.graphics.circle("fill", cx - r * 0.32, cy - r * 0.32, r * 0.22)
-      -- stem
-      love.graphics.setColor(0.50, 0.30, 0.18, 1)
-      love.graphics.setLineWidth(4)
-      love.graphics.line(cx + 1, cy - r + 1, cx + 7, cy - r - 12)
-      -- leaf
-      love.graphics.setColor(0.50, 0.85, 0.45, 1)
-      love.graphics.circle("fill", cx + 12, cy - r - 8, 7)
+
+      -- a single soft scratch of light along the upper-left of the body
+      -- -- artistic touch to suggest depth without breaking the silhouette
+      love.graphics.setColor(1, 1, 1, 0.30 * pulse)
+      love.graphics.setLineWidth(2)
+      love.graphics.arc("line", "open", cx, cy + R * 0.08, R * 0.78,
+                        math.pi * 1.10, math.pi * 1.42)
       love.graphics.setLineWidth(1)
+
       -- prompt
       love.graphics.setFont(font_med)
-      love.graphics.setColor(1, 0.85, 0.95, 0.95)
+      love.graphics.setColor(1, 1, 1, 0.85 * pulse)
       love.graphics.printf("CATCH THE APPLE", 0, 80, DESIGN_W, "center")
     end
     if state == "lobby"    then

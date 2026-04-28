@@ -87,13 +87,10 @@ local function onKick(t, ev, target)
   -- expanded pool: bullets, triangles, rings, bursts, rain (multi-bullet
   -- curtain), and small bar combs at higher intensity.
   if r < 0.40 or I < 0.20 then
+    -- single edge bullet aimed loosely at the centre
     local x, y = edgePoint()
     local dx, dy = dirToCenter(x + rand(-260,260), y + rand(-180,180))
-    if love.math.random() < 0.45 then
-      Obs.triangle({ x=x, y=y, dx=dx, dy=dy, speed=200 + I*70, fire_t=0.65, r=13, color=pickColour() })
-    else
-      Obs.bullet({ x=x, y=y, dx=dx, dy=dy, speed=190 + I*60, fire_t=0.65, r=12, color=pickColour() })
-    end
+    Obs.bullet({ x=x, y=y, dx=dx, dy=dy, speed=190 + I*60, fire_t=0.65, r=12, color=pickColour() })
   elseif r < 0.58 then
     local x = CENTER_X + rand(-340, 340)
     local y = CENTER_Y + rand(-210, 210)
@@ -168,12 +165,17 @@ local function onSnare(t, ev, target)
       color = pickColour(),
     })
   elseif r < 0.66 then
-    Obs.spiral({
-      x = CENTER_X + rand(-220, 220), y = CENTER_Y + rand(-160, 160),
-      arms = 2 + math.floor(I * 1.5),
-      count = 3 + math.floor(I * 1.5),
-      speed = 160 + I * 80,
-      r = 9, warn = 0.70,
+    -- comb of bars sweeping the screen with a clear gap (replaces spiral)
+    Obs.bar_comb({
+      count = 3,
+      horizontal = love.math.random() < 0.55,
+      speed = 220 + I * 70,
+      thick = 28,
+      stagger = 280,
+      gap_idx = 2,
+      from_dir = (love.math.random() < 0.5) and 1 or -1,
+      warn = 0.95,
+      life = 3.0,
       color = pickColour(),
     })
   elseif r < 0.78 then
